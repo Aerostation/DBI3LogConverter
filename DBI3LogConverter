@@ -1,0 +1,186 @@
+#!/usr/bin/python
+# vim: set sw=4 st=4 ai expandtab:
+
+import os
+import argparse
+from datetime import datetime
+from datetime import timedelta
+from simplekml import Kml, Snippet, Types
+
+
+two_seconds = timedelta(seconds=2)
+kml_line_color = 'ff0000ff'  # hex aabbggrr
+
+# Required start record fields
+s_fields = ['FWVER', 'SN', 'DATE', 'TIME']
+d_fields = ['ALT', 'ROC', 'AMBT', 'GPSS', 'SOG', 'COG', 'LONG', 'LAT']
+e_fields = ['DATE', 'TIME']
+
+kml_when = []
+kml_coord= []
+kml_a_temp= []
+
+def main(filename, out_file, base_name):
+    log_state = 1 # 1=expecting start line, 2=records
+    header_line=False
+    tot_recs = 0
+    dat_recs = 0
+    min_lon = 180.0
+    max_lon = -180.0
+    min_lat = 90.0
+    max_lat = -90.0
+    with open(filename) as myfile:
+	for line in myfile:
+            tot_recs = tot_recs+1
+	    myvars = {}
+	    line = line.rstrip('\r\n')
+	    arg_pairs = line.split(" ")
+	    for p in arg_pairs:
+		var, val = p.split("=")
+		myvars[var] = val
+	    #print myvars
+
+            if 'DATE' in myvars.keys():
+                 end_datetime = datetime.strptime(myvars['DATE']+' '+myvars['TIME'], '%Y-%m-%d %H:%M:%S')
+	    if log_state == 1:  # Expecting the start line
+                m_key=field_check(s_fields, myvars)
+                if m_key is not None:
+                    print 'Start record missing field ' + m_key
+                    break
+                start_datetime = end_datetime
+                rec_time = start_datetime
+                log_state = 2
+                print 'Start time ' + start_datetime.isoformat(' ')
+	    else:
+                if 'DATE' in myvars.keys():  # found the end record
+                    m_key=field_check(e_fields, myvars)
+		    if m_key is None:
+                        print '  Total records={0}  data records={1}'.format(tot_recs, dat_recs)
+                        print 'End time ' + end_datetime.isoformat('T') + ' Rec time ' + rec_time.isoformat('T')
+                    else:
+                        print 'End record missing field ' + m_key
+                    break
+                else:
+                    m_key = field_check(d_fields, myvars)
+                    if m_key is None:
+                        if myvars['GPSS'] == '0':
+                            dat_recs = dat_recs+1
+                            if not header_line:
+                                print >>out_file, 'utc_d,utc_t,alt,lat,lon,head,speed,temp'
+                                header_line = True
+                            print >>out_file, rec_time.strftime('%Y/%m/%d,%H:%M:%S,') + myvars['ALT'] + ',' + myvars['LAT'] + \
+                                  ',' + myvars['LONG'] + ',' + myvars['COG'] + ',' + myvars['SOG'] + \
+                                  ',' + myvars['AMBT']
+                            #print 'Record ' + rec_time.isoformat('T') + ' ' + myvars['LAT'] + ' ' + myvars['LONG']
+                            kml_lat = ddmm2d(myvars['LAT'])
+                            kml_lon = ddmm2d(myvars['LONG'])
+                            if kml_lat < min_lat:
+                                min_lat = kml_lat
+                            if kml_lat > max_lat:
+                                max_lat = kml_lat
+                            if kml_lon < min_lon:
+                                min_lon = kml_lon
+                            if kml_lon > max_lon:
+                                max_lon = kml_lon
+                            kml_when.append(rec_time.isoformat('T'))
+                            kml_coord.append((kml_lon, kml_lat, float(myvars['ALT'])))
+                            kml_a_temp.append(float(myvars['AMBT']))
+                    else:
+                        print 'Data record missing field ' + m_key
+                # Do we increment the time before or after the data records?
+	        rec_time = rec_time + two_seconds;
+
+        # write the KML
+        # Create the KML document
+        kml = Kml(name="Tracks", open=1)
+        doc = kml.newdocument(name='GPS device', snippet=Snippet('Created Wed Jun 2 15:33:39 2010'))
+        doc.lookat.gxtimespan.begin = start_datetime.isoformat('T')
+        doc.lookat.gxtimespan.end = end_datetime.isoformat('T')
+        doc.lookat.longitude = max_lon - ((max_lon - min_lon)/2)
+        doc.lookat.latitude = max_lat - ((max_lat - min_lat) /2)
+        doc.lookat.range = 1300.000000
+
+        # Create a folder
+        fol = doc.newfolder(name='Tracks')
+
+        # Create a schema for extended data: heart rate, cadence and power
+        schema = kml.newschema()
+        schema.newgxsimplearrayfield(name='a_temp', type=Types.float, displayname='Ambient Temp')
+#        schema.newgxsimplearrayfield(name='cadence', type=Types.int, displayname='Cadence')
+#        schema.newgxsimplearrayfield(name='power', type=Types.float, displayname='Power')
+
+        # Create a new track in the folder
+        trk = fol.newgxtrack(name='DBI3 ' + start_datetime.isoformat('T'))
+
+        # Apply the above schema to this track
+        trk.extendeddata.schemadata.schemaurl = schema.id
+
+        # Add all the information to the track
+        trk.newwhen(kml_when) # Each item in the give nlist will become a new <when> tag
+        trk.newgxcoord(kml_coord) # Ditto
+        trk.extendeddata.schemadata.newgxsimplearraydata('a_temp', kml_a_temp) # Ditto
+#        trk.extendeddata.schemadata.newgxsimplearraydata('cadence', cadence) # Ditto
+#        trk.extendeddata.schemadata.newgxsimplearraydata('power', power) # Ditto
+
+        # Styling
+        trk.stylemap.normalstyle.iconstyle.icon.href = 'http://earth.google.com/images/kml-icons/track-directional/track-0.png'
+        trk.stylemap.normalstyle.linestyle.color = kml_line_color
+        trk.stylemap.normalstyle.linestyle.width = 3
+        trk.stylemap.highlightstyle.iconstyle.icon.href = 'http://earth.google.com/images/kml-icons/track-directional/track-0.png'
+        trk.stylemap.highlightstyle.iconstyle.scale = 1.2
+        trk.stylemap.highlightstyle.linestyle.color = kml_line_color
+        trk.stylemap.highlightstyle.linestyle.width = 8
+
+        # Save the kml to file
+        kml.save(base_name + ".kml")
+
+
+# Convert ddmm.mmmNSEW to floating point dd.ddd
+def ddmm2d(dm):
+    hemi = dm[-1:]
+    dm = dm[:-1]
+    min_dec = dm.find('.')
+    deg = dm[:min_dec-2]
+    min = dm[min_dec-2:]
+    latlon = float(deg) + float(min)/60.0
+    if hemi == 'W' or hemi == 'S':
+        latlon = 0.0 - latlon
+    return latlon
+
+
+
+
+# Check that all required data fields exists
+# return None if OK, return missing field name if Not OK
+def field_check(req_fields, myvars):
+    for r_key in req_fields:
+        if not r_key in myvars:
+            return r_key
+    return None
+
+
+parser = argparse.ArgumentParser(description="Convert DBI3 log file(s) to Babel unicsv format.",
+        epilog="  Output filename is the input root name with a .csv extension.  The "+
+               "unicsv format can be converted to other useful formats (such as GPX, KML) by "+
+               "the GPSBabel application")
+parser.add_argument('filename', type=str, nargs='+',
+                    help='DBI3 log filename')
+parser.add_argument('-d', action='store', dest='dest_dir', default=None,
+                    required=True,
+                    help='destination path for unicsv output files')
+args = parser.parse_args()
+
+if not os.path.isdir(args.dest_dir):
+    print '-d ' + args.dest_dir + " path does not exists"
+    os.exit(-1)
+
+for fn in args.filename:
+    filename = os.path.basename(fn)
+    filename, f_ext = os.path.splitext(filename)
+    base_name = os.path.join(args.dest_dir, filename)
+    filename = base_name + '.csv'
+    csv_file = open(filename, 'w')
+    main(fn, csv_file, base_name)
+    csv_file.close()
+
+
