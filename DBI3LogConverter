@@ -2,21 +2,23 @@
 # vim: set sw=4 st=4 ai expandtab:
 
 import os
+import sys
 import argparse
 from datetime import datetime
 from datetime import timedelta
 from simplekml import Kml, Snippet, Types
 import math
 
-__version__ = '0.1.alpah1'
+__version__ = '0.3.alpah1'
 
 two_seconds = timedelta(seconds=2)
 kml_line_color = 'ff0000ff'  # hex aabbggrr
 
 # Required start record fields - to validate log record content
 s_fields = ['FWVER', 'SN', 'DATE', 'TIME']
-d_fields = ['ALT', 'ROC', 'AMBT', 'GPSS', 'SOG', 'COG', 'LONG', 'LAT', 'TOPTS', 'TOPT']
+d_fields = ['ALT', 'ROC', 'AMBT', 'GPSS', 'SOG', 'COG', 'LONG', 'LAT', 'TOPTS', 'TOPT', 'BATM', 'BRDT']
 e_fields = ['DATE', 'TIME']
+do_field = {}
 
 def ddmm_to_d_conversion(filename, csv_file, base_name):
     '''Function to read and convert a DBI3 log file to XML (or other) format
@@ -34,19 +36,24 @@ def ddmm_to_d_conversion(filename, csv_file, base_name):
     header_line=False
     tot_recs = 0
     dat_recs = 0
+    # Monitor min/max track data to calculate a bounding box
     min_lon = 180.0
     max_lon = -180.0
     min_lat = 90.0
     max_lat = -90.0
+    min_topt = 100.0  # when TOPT is missing, we display this default data
 
+    # data lists to construct the KML output
     kml_when = []
-    kml_coord= []
-    kml_a_temp= []
-    kml_t_temp= []
-    kml_diff_t= []
-    kml_cog= []
-    kml_sog= []
-    kml_roc= []
+    kml_coord = []
+    kml_a_temp = []
+    kml_t_temp = []
+    kml_diff_t = []
+    kml_cog = []
+    kml_sog = []
+    kml_roc = []
+    kml_batm = []
+    kml_brdt = []
 
     with open(filename) as myfile:
 	for line in myfile:
@@ -89,7 +96,9 @@ def ddmm_to_d_conversion(filename, csv_file, base_name):
                     m_key = field_check(d_fields, myvars)
                     if m_key is None:
                         if myvars['GPSS'] == '0':
+                            ####
                             # This is a data record and it has GPS data
+                            ####
                             dat_recs = dat_recs+1
                             if not header_line:
                                 if csv_file is not None:
@@ -115,12 +124,24 @@ def ddmm_to_d_conversion(filename, csv_file, base_name):
                             if kml_lon > max_lon:
                                 max_lon = kml_lon
                             kml_when.append(rec_time.isoformat('T'))
-                            kml_coord.append((kml_lon, kml_lat, float(myvars['ALT'])))
-                            kml_a_temp.append(C_to_F(float(myvars['AMBT'])))
-                            kml_t_temp.append(C_to_F(float(myvars['TOPT'])) if myvars['TOPTS']==1 else 0.0)
-                            kml_sog.append(M_to_mi(float(myvars['SOG'])))
-                            kml_cog.append(float(myvars['COG']))
-                            kml_roc.append(M_to_ft(float(myvars['ROC'])))
+                            kml_coord.append((kml_lon, kml_lat, float(myvars['ALT'])+args.altitude_offset))
+                            amb_temp = C_to_F(float(myvars['AMBT']))
+                            top_temp = C_to_F(float(myvars['TOPT'])) if myvars['TOPTS']=='1' else min_topt
+                            if do_field['AMBT']:
+                                kml_a_temp.append(amb_temp)
+                            if do_field['TOPT']:
+                                kml_t_temp.append(top_temp)
+                            if do_field['DIFF']:
+                                kml_diff_t.append(top_temp-amb_temp)
+                                kml_sog.append(M_to_mi(float(myvars['SOG'])*60*60))
+                            if do_field['COG']:
+                                kml_cog.append(float(myvars['COG']))
+                            if do_field['ROC']:
+                                kml_roc.append(M_to_ft(float(myvars['ROC'])))
+                            if do_field['BATM']:
+                                kml_batm.append(float(myvars['BATM']))
+                            if do_field['BRDT']:
+                                kml_brdt.append(C_to_F(float(myvars['BRDT'])))
                     else:
                         print 'Data record missing field ' + m_key
                         bad_data_record += 1
@@ -134,7 +155,7 @@ def ddmm_to_d_conversion(filename, csv_file, base_name):
         # write the KML
         # Create the KML document
         kml = Kml(name="Tracks", open=1)
-        doc = kml.newdocument(name='GPS device', snippet=Snippet('Created Wed Jun 2 15:33:39 2010'))
+        doc = kml.newdocument(name='GPS device', snippet=Snippet('DBI3LogConverter Created Wed Jun 2 15:33:39 2010'))
         doc.lookat.gxtimespan.begin = start_datetime.isoformat('T')
         doc.lookat.gxtimespan.end = end_datetime.isoformat('T')
         doc.lookat.longitude = max_lon - ((max_lon - min_lon)/2)
@@ -144,16 +165,28 @@ def ddmm_to_d_conversion(filename, csv_file, base_name):
         # Create a folder
         fol = doc.newfolder(name='Tracks')
 
-        # Create a schema for extended data: heart rate, cadence and power
+        # Create a schema for extended datad
         schema = kml.newschema()
-        schema.newgxsimplearrayfield(name='a_temp', type=Types.float, displayname='Ambient F')
-        schema.newgxsimplearrayfield(name='t_temp', type=Types.float, displayname='Top F')
-        schema.newgxsimplearrayfield(name='cog', type=Types.float, displayname='COG')
-        schema.newgxsimplearrayfield(name='sog', type=Types.float, displayname='SOG MPH')
+        if do_field['AMBT']:
+            schema.newgxsimplearrayfield(name='a_temp', type=Types.float, displayname='Ambient F')
+        if do_field['TOPT']:
+            schema.newgxsimplearrayfield(name='t_temp', type=Types.float, displayname='Top F')
+        if do_field['DIFF']:
+            schema.newgxsimplearrayfield(name='d_temp', type=Types.float, displayname='Diff F')
+        if do_field['COG']:
+            schema.newgxsimplearrayfield(name='cog', type=Types.float, displayname='COG')
+        if do_field['SOG']:
+            schema.newgxsimplearrayfield(name='sog', type=Types.float, displayname='SOG MPH')
+        if do_field['ROC']:
+            schema.newgxsimplearrayfield(name='roc', type=Types.float, displayname='ROC FPM')
+        if do_field['BATM']:
+            schema.newgxsimplearrayfield(name='batm', type=Types.float, displayname='BAT V')
+        if do_field['BRDT']:
+            schema.newgxsimplearrayfield(name='brdt', type=Types.float, displayname='BRD F')
 
         # Create a new track in the folder
         trk = fol.newgxtrack(name='DBI3 ' + start_datetime.isoformat('T'),
-                altitudemode='absolute', # absolute, clampToGroune, relativeToGround
+                altitudemode=args.altitudemode, # absolute, clampToGround, relativeToGround
                              description='DBI3 Track\nSN '+dbi3_sn+'\nFWVER '+dbi3_fwver)
 
         # Apply the above schema to this track
@@ -162,10 +195,22 @@ def ddmm_to_d_conversion(filename, csv_file, base_name):
         # Add all the information to the track
         trk.newwhen(kml_when) # Each item in the give nlist will become a new <when> tag
         trk.newgxcoord(kml_coord)
-        trk.extendeddata.schemadata.newgxsimplearraydata('a_temp', kml_a_temp)
-        trk.extendeddata.schemadata.newgxsimplearraydata('t_temp', kml_t_temp)
-        trk.extendeddata.schemadata.newgxsimplearraydata('cog', kml_cog)
-        trk.extendeddata.schemadata.newgxsimplearraydata('sog', kml_sog)
+        if do_field['AMBT']:
+            trk.extendeddata.schemadata.newgxsimplearraydata('a_temp', kml_a_temp)
+        if do_field['TOPT']:
+            trk.extendeddata.schemadata.newgxsimplearraydata('t_temp', kml_t_temp)
+        if do_field['DIFF']:
+            trk.extendeddata.schemadata.newgxsimplearraydata('d_temp', kml_diff_t)
+        if do_field['COG']:
+            trk.extendeddata.schemadata.newgxsimplearraydata('cog', kml_cog)
+        if do_field['SOG']:
+            trk.extendeddata.schemadata.newgxsimplearraydata('sog', kml_sog)
+        if do_field['ROC']:
+            trk.extendeddata.schemadata.newgxsimplearraydata('roc', kml_roc)
+        if do_field['BATM']:
+            trk.extendeddata.schemadata.newgxsimplearraydata('batm', kml_batm)
+        if do_field['BRDT']:
+            trk.extendeddata.schemadata.newgxsimplearraydata('brdt', kml_brdt)
 
         # Styling
         trk.stylemap.normalstyle.iconstyle.icon.href = 'http://earth.google.com/images/kml-icons/track-directional/track-0.png'
@@ -218,6 +263,11 @@ def M_to_ft(meters):
     return meters * 3.28084
 
 
+def ft_to_M(feet):
+    '''Convert feet to Meters'''
+    return feet / 3.28084
+
+
 def M_to_mi(meters):
     '''Converte Meters to miles'''
     return meters * 0.000621371
@@ -257,12 +307,24 @@ def field_check(req_fields, myvars):
 
 
 if __name__ == '__main__':
+    fields_choice= ['ROC', 'TOPT', 'AMBT', 'DIFF', 'SOG', 'COG', 'BATM', 'BRDT']
+    fields_default= ['AMBT','TOPT', 'DIFF']
+
     parser = argparse.ArgumentParser(description="Convert DBI3 log file(s) to KML format.",
             epilog="  Output filename is the input root name with a .kml extension.  The "+
             "optional unicsv format can be converted to other useful formats (such as GPX) by "+
                    "the GPSBabel application")
     parser.add_argument('filename', type=str, nargs='+',
                         help='DBI3 log filename')
+    parser.add_argument('--fields', action='store' , default=fields_default,
+                        type=lambda s: s.split(',') ,
+                        help='Which DBI3 data fields should be included in the KML output, default={}, choices={}, ALL turns on all fields'
+                              .format(','.join(fields_default), ','.join(fields_choice)))
+    parser.add_argument('--altitudemode', action='store', default='absolute',
+                        choices=['absolute', 'clamptoground', 'relative'],
+                        help='display mode for track altitude, default=absolute')
+    parser.add_argument('--offset', action='store', dest='altitude_offset', type=float, default=0.0,
+                        help='correction offset to apply to the pressure altitude, default=0.0')
     parser.add_argument('-d', action='store', dest='dest_dir', default=None,
                         help='destination path for the output files. Defaults to the'+
                              ' path of the first log filename')
@@ -272,12 +334,28 @@ if __name__ == '__main__':
                         help='verbose output during processing')
     parser.add_argument('-V', '--version', action='version', version='%(prog)s ('+__version__+')')
     args = parser.parse_args()
+    # Verifiy the fields list and set the field names in a boolean dictionary
+    for fn in fields_choice:
+        do_field[fn] = False
+    if 'ALL' in args.fields:
+        # Special case, turns on all fields
+        args.fields = fields_choice
+    for fn in args.fields:
+        if fn not in fields_choice:
+            print 'error: argument --fields: invalid choice: \'{}\' (choose from {})'.format(fn, fields_choice)
+            sys.exit(-1)
+        else:
+            do_field[fn] = True
 
+    # Adjust altitude_offset from feet to meters for KML offset
+    args.altitude_offset = ft_to_M(args.altitude_offset)
+
+    # Verify destination path, or construct destination from first log file path
     if args.dest_dir is None:
         dest_dir = os.path.dirname(args.filename[0])
     elif not os.path.isdir(args.dest_dir):
         print '-d ' + args.dest_dir + " path does not exists"
-        os.exit(-1)
+        sys.exit(-1)
     else:
         dest_dir = args.dest_dir
 
