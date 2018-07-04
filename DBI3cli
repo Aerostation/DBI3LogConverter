@@ -1,0 +1,323 @@
+#!/usr/bin/python
+# vim: set sw=4 st=4 ai expandtab:
+"""
+DBI3 log names appear to be timestamps that are RAD26 encoded using 7 uppercase A-Z characters.
+
+DBI3 log list consists of 2 7-character strings representing the start and stop time.
+The 7 character string are RAD26 encoded using 7 uppercase A-Z characters.
+The resulting numbers are in DOS FAT timestamp encoded format.
+
+2 Bytes - Date
+Bits    Description
+15-9    Year (0 = 1980, 119 = 2099 supported under DOS/Windows, theoretically up to 127 = 2107)
+8-5     Month (1-12)
+4-0     Day (1-31)
+
+2 Bytes - Time (2 second resolution)
+Bits    Description
+15-11   Hours (0-23)
+10-5    Minutes (0-59)
+4-0     Seconds/2 (0-29)
+
+
+"""
+import os
+import argparse
+import serial
+from time import sleep
+import re
+from datetime import datetime, timedelta, tzinfo
+from dbi3_log_conversion import dbi3_log_conversion, ft_to_M
+
+__version__ = '0.1.alpah1'
+
+ORD_A = ord('A')
+
+
+def radix26_to_int(rad26):
+    """ DBI3 log names are radix 26 encoded string.  Seven upper case characters
+    where each character is a number from 0-26 and converts to a 32bit integer.
+    """
+    encoded_int = 0
+
+    for i in list(rad26):
+        encoded_int = encoded_int * 26
+        encoded_int = encoded_int + (ord(i) - ORD_A)
+    return encoded_int
+
+
+class UTC(tzinfo):
+    """UTC tzinfo"""
+
+    def utcoffset(self, dt):
+       return timedelta(0)
+
+    def tzname(self, dt):
+       return "UTC"
+
+    def dst(self, dt):
+       return timedelta(0)
+
+utc = UTC()  # tzinfo for UTC
+
+
+def fat_to_datetime(rad26):
+    """
+    Convert 7 character log name to datetime.
+
+    The 7 character string is RAD26 encoded using 7 uppercase A-Z characters.
+    The resulting numbers are in DOS FAT timestamp encoded format.
+
+    2 Bytes - Date
+    Bits    Description
+    15-9    Year (0 = 1980, 119 = 2099 supported under DOS/Windows, theoretically up to 127 = 2107)
+    8-5     Month (1-12)
+    4-0     Day (1-31)
+
+    2 Bytes - Time (2 second resolution)
+    Bits    Description
+    15-11   Hours (0-23)
+    10-5    Minutes (0-59)
+    4-0     Seconds/2 (0-29)
+    """
+    fat = radix26_to_int(rad26)
+    second = (fat & 0x1F) * 2
+    fat >>= 5
+    minute = fat & 0x3F
+    fat >>= 6
+    hour = fat & 0x1F
+    fat >>= 5
+    day = fat & 0x1F
+    fat >>= 5
+    month = fat & 0xF
+    fat >>= 4
+    year = (fat & 0x7F) + 1980
+    return datetime(year, month, day, hour, minute, second, tzinfo=utc)
+
+def get_DBI3_log_list(ser):
+    """Retrieve the DBI3 log list and return it as a list of lists.
+
+    The outer list is the log list, the inner list contains radix26 "start stop",
+    start datetime, stop datetime, constructed log file name.
+    """
+    ser.write('md mach\r')
+    res = ''.join(ser.readline()).strip()
+    print 'md mach ({}) result={}'.format(len(res), res)
+
+    ser.write('fs stop\r')
+    res = ''.join(ser.readline()).strip()
+    print 'fs stop result={}'.format(res)
+
+    ser.write('fs list\r')
+    res_list = ''.join(ser.readlines()).strip()
+    print 'fs list (count {})'.format(len(res_list))
+
+    log_list = []
+    for ln in res_list.splitlines():
+        if ln == '': continue
+        rs = ln.split(' ')
+        start_dt = fat_to_datetime(rs[0])
+        stop_dt = fat_to_datetime(rs[1])
+
+        log_name = start_dt.strftime('%Y_%m_%d_%H_%M_%S_DBI3.log')
+        rs.extend([start_dt, stop_dt, log_name])
+        log_list.append(rs)
+    log_list.sort()
+    print 'log_list length {}'.format(len(log_list))
+    return log_list
+
+def delete_DBI3_log(ser, name):
+    print 'Will delete {}'.format(name)
+    ser.write('md mach\r')
+    res = ''.join(ser.readline()).strip()
+    print 'md mach ({}) result={}'.format(len(res), res)
+
+    ser.write('fs stop\r')
+    res = ''.join(ser.readline()).strip()
+    print 'fs stop result={}'.format(res)
+
+    ser.write('fs del {}\r'.format(name))
+    oldTimeout = ser.timeout
+    ser.timeout = 20
+    # DELETE appears to have no response, so a "md mach" is queued to produce an OK/NOK
+    ser.write('md mach\r')
+    res = ''.join(ser.readline()).strip()
+    ser.timeout = oldTimeout
+    print 'fs delete ({}) result={}'.format(len(res), res)
+    return True
+
+def get_DBI3_log(ser, name, path):
+    ser.write('md mach\r')
+    res = ''.join(ser.readline()).strip()
+    print 'md mach result={}'.format(res)
+
+    ser.write('fs stop\r')
+    res = ''.join(ser.readline()).strip()
+    print 'fs stop result={}'.format(res)
+
+    ser.write('fs read {}\r'.format(name))
+    res = ''.join(ser.readlines())
+    if len(res) == 0:
+	print 'LOG-{} zero length'.format(name)
+	return
+
+    start_dt = fat_to_datetime(name)
+    log_name = start_dt.strftime('%Y_%m_%d_%H_%M_%S_DBI3.log')
+    log_file = os.path.join(path, log_name)
+    with open(log_file, 'w') as log_out:
+	for ln in res.splitlines():
+            # DBI3 outputs terminator as \n\r which is backward.  splitlines
+            # sees a blank line between the two terminators.  Blank lines are
+            # invalid in the log so we can simply ignore them.
+	    if ln == '': continue  # odd newline combos can cause blank lines
+	    log_out.write(ln + '\n')
+	print 'LOG download-{} {} ({})'.format(name, log_name, len(res))
+
+    if not os.path.isdir(log_path):
+        print "Log file path {} does not exist.".format(log_path)
+        exit()
+
+
+def download_new_logs(com_port, log_path):
+    if not os.path.exists(com_port):
+        print "COM port {} does not exist.".format(com_port)
+        exit()
+
+    ser = serial.Serial(com_port, 115200, timeout=1)
+    ser.dtr = True
+    ser.rts = True
+    print (ser.get_settings())
+
+    # log list elements contain list 'startRad26, stopRad26, start_dt, stop_dt, log_filename'
+    log_list = get_DBI3_log_list(ser)
+
+    if verbose:
+        for rs in log_list:
+            log_file = os.path.join(log_path, rs[4])
+
+            if os.path.isfile(log_file):
+                fileExists = True
+            else:
+                fileExists = False
+            print 'LOG-{} {}  duration {}'.format('   ' if fileExists else 'new', rs[2], rs[3] - rs[2])
+
+    if False:  # this was just to trim the empty logs created 6-19 and after
+        trim_trigger = datetime(2018, 06, 19, tzinfo=utc)
+        for rs in log_list:
+            start_dt = fat_to_datetime(rs[0])
+            #if start_dt > trim_trigger:
+                # delete_DBI3_log(ser, rs[0])
+     
+    # Download all logs that we don't already have
+    for rs in log_list:
+        log_file = os.path.join(log_path, rs[4])
+
+        if not os.path.isfile(log_file):
+            get_DBI3_log(ser, rs[0], log_path)
+
+    # Clear any ongoing operations before we close the serial port
+    ser.write('fs stop\r')
+    res = ''.join(ser.readline()).strip()
+    print 'fs stop result={}'.format(res)
+
+    ser.write('md mach\r')
+    res = ''.join(ser.readline()).strip()
+    print 'md mach result={}'.format(res)
+
+    ser.close()
+    return
+
+
+def convert_new_logs(log_path, kml_path):
+    """Convert new DBI3 logs to kml output
+
+    For each DBI3 log file, it the corresponding kml file does not exists,
+    run the conversion.
+
+    Args:
+        log_path - path containing DBI3 log files
+        kml_path - path containing DBI3 kml files
+    """
+    prog = re.compile('^(\d{4})_(\d\d)_(\d\d)_(\d\d_){3}DBI3.log$')
+    for item in os.listdir(log_path):
+        log_filename = os.path.join(log_path, item)
+        if os.path.isfile(log_filename):
+            match = prog.match(item)
+            if match:
+                kml_name = match.expand('\\1\\2\\3_DBI3')
+                kml_filename = os.path.join(kml_path, kml_name)
+                if not os.path.isfile(kml_filename + '.kml'):
+                    print 'Convert {} to {}'.format(log_filename, kml_filename)
+                    dbi3_log_conversion(log_filename, None, kml_filename, verbose=True)
+
+
+log_path = '/tmp/DBI3'
+kml_path = '/tmp/DBI3/kml'
+com_port = '/dev/ttyDBI3'
+verbose = True
+
+def process_dbi():
+    if not os.path.isdir(log_path):
+        print "Log file path {} does not exist.".format(log_path)
+        exit()
+    if not os.path.isdir(kml_path):
+        print "KML file path {} does not exist.".format(kml_path)
+        exit()
+
+#    download_new_logs(com_port, log_path)
+
+    convert_new_logs(log_path, kml_path)
+
+if __name__ ==  "__main__":
+    fields_choice = ['ROC', 'TOPT', 'AMBT', 'DIFF', 'SOG', 'COG', 'BATM', 'BRDT']
+    fields_default = ['AMBT', 'TOPT', 'DIFF']
+    do_field = {}
+
+    parser = argparse.ArgumentParser(description="Convert DBI3 log file(s) to KML format.",
+            epilog="  Output filename is the input root name with a .kml extension.  The " +
+            "optional unicsv format can be converted to other useful formats (such as GPX) by " +
+                   "the GPSBabel application")
+    parser.add_argument('--fields', action='store', default=fields_default,
+                        type=lambda s: s.split(','),
+                        help='Which DBI3 data fields should be included in the KML output, default={}, choices={}, ALL turns on all fields'
+                        .format(','.join(fields_default), ','.join(fields_choice)))
+    parser.add_argument('--altitudemode', action='store', default='absolute',
+                        choices=['absolute', 'clamptoground', 'relative'],
+                        help='display mode for track altitude, default=absolute')
+    parser.add_argument('--offset', action='store', dest='altitude_offset', type=float, default=0.0,
+                        help='correction offset to apply to the pressure altitude, default=0.0')
+    parser.add_argument('-d', action='store', dest='dest_dir', default=None,
+                        help='destination path for the output files. Defaults to the' +
+                             ' path of the first log filename')
+    parser.add_argument('--csv', action='store_true', default=False,
+                        help='enable unicsv output file')
+    parser.add_argument('--verbose', action='store_true', default=False,
+                        help='verbose output during processing')
+    parser.add_argument('-V', '--version', action='version', version='%(prog)s ('+__version__+')')
+    args = parser.parse_args()
+    # Verifiy the fields list and set the field names in a boolean dictionary
+    for fn in fields_choice:
+        do_field[fn] = False
+    if 'ALL' in args.fields:
+        # Special case, turns on all fields
+        args.fields = fields_choice
+    for fn in args.fields:
+        if fn not in fields_choice:
+            print 'error: argument --fields: invalid choice: \'{}\' (choose from {})'.format(fn, fields_choice)
+            sys.exit(-1)
+        else:
+            do_field[fn] = True
+
+    # Adjust altitude_offset from feet to meters for KML offset
+    args.altitude_offset = ft_to_M(args.altitude_offset)
+
+    # Verify destination path, or construct destination from first log file path
+#    if args.dest_dir is None:
+#        dest_dir = os.path.dirname(args.filename[0])
+#    elif not os.path.isdir(args.dest_dir):
+#        print '-d ' + args.dest_dir + " path does not exists"
+#        sys.exit(-1)
+#    else:
+#        dest_dir = args.dest_dir
+
+    process_dbi()
