@@ -17,28 +17,35 @@ if __name__ == '__main__':
     do_field = {}
 
     parser = argparse.ArgumentParser(description="Convert DBI3 log file(s) to KML format.",
-            epilog="  Output filename is the input root name with a .kml extension.  The " +
-            "optional unicsv format can be converted to other useful formats (such as GPX) by " +
-                   "the GPSBabel application")
+                                     epilog="  Output filename is the input root name with a .kml extension.  The " +
+                                     "optional unicsv format can be converted to other useful formats (such as GPX) " +
+                                     "by the GPSBabel application")
     parser.add_argument('filename', type=str, nargs='+',
                         help='DBI3 log filename')
     parser.add_argument('--fields', action='store', default=fields_default,
                         type=lambda s: s.split(','),
-                        help='Which DBI3 data fields should be included in the KML output, default={}, choices={}, ALL turns on all fields'
-                        .format(','.join(fields_default), ','.join(fields_choice)))
+                        help='Which DBI3 data fields should be included in the KML output, ' +
+                             'default={}, choices={}, ALL turns on all fields'
+                             .format(','.join(fields_default), ','.join(fields_choice)))
     parser.add_argument('--altitudemode', action='store', default='absolute',
                         choices=['absolute', 'clamptoground', 'relative'],
                         help='display mode for track altitude, default=absolute')
+    parser.add_argument('--useMetric', action='store_true', default=False,
+                        help='For additional profile graph data fields use meters per second for rate of climb, ' +
+                             'kilometers per hour for speed, ' +
+                             'Celsius for temperature, and meters for altitude.  ' +
+                             'default=FPM, MPH, Fahrenheit, feet.  NOTE: Google Earth config controls ' +
+                             'the map display units for Track Elevation and Speed.')
     parser.add_argument('--offset', action='store', dest='altitude_offset', type=float, default=0.0,
                         help='correction offset to apply to the pressure altitude, default=0.0')
-    parser.add_argument('-d', action='store', dest='dest_dir', default=None,
+    parser.add_argument('--dest', '-d', action='store', dest='dest_dir', default=None,
                         help='destination path for the output files. Defaults to the' +
                              ' path of the first log filename')
     parser.add_argument('--csv', action='store_true', default=False,
                         help='enable unicsv output file')
     parser.add_argument('--verbose', action='store_true', default=False,
                         help='verbose output during processing')
-    parser.add_argument('-V', '--version', action='version', version='%(prog)s ('+__version__+')')
+    parser.add_argument('--version', '-V', action='version', version='%(prog)s ('+__version__+')')
     args = parser.parse_args()
     # Verifiy the fields list and set the field names in a boolean dictionary
     for fn in fields_choice:
@@ -78,6 +85,6 @@ if __name__ == '__main__':
             csv_file = None
         dbi3_log_conversion(fn, csv_file, base_name, altitudemode=args.altitudemode,
                              altitude_offset=args.altitude_offset, verbose=args.verbose,
-                             fields_choice=do_field)
+                             fields_choice=do_field, use_metric=args.useMetric)
         if csv_file is not None:
             csv_file.close()

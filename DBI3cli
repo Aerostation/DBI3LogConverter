@@ -244,7 +244,7 @@ def convert_new_logs(log_path, kml_path):
         if os.path.isfile(log_filename):
             match = prog.match(item)
             if match:
-                kml_name = match.expand('\\1\\2\\3_DBI3')
+                kml_name = match.expand('\\1\\2\\3_\\4\\5_DBI3')
                 kml_filename = os.path.join(kml_path, kml_name)
                 if not os.path.isfile(kml_filename + '.kml'):
                     print 'Convert {} to {}'.format(log_filename, kml_filename)
@@ -264,7 +264,7 @@ def process_dbi():
         print "KML file path {} does not exist.".format(kml_path)
         exit()
 
-#    download_new_logs(com_port, log_path)
+    download_new_logs(com_port, log_path)
 
     convert_new_logs(log_path, kml_path)
 

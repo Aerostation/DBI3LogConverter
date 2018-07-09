@@ -1,5 +1,6 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 # vim: set sw=4 st=4 ai expandtab:
+"""Program to convert DBI3 log files to KML"""
 
 import os
 import sys
@@ -17,9 +18,11 @@ d_fields = ['ALT', 'ROC', 'AMBT', 'GPSS', 'SOG', 'COG', 'LONG', 'LAT', 'TOPTS', 
 e_fields = ['DATE', 'TIME']
 do_field = {}
 
+
 def dbi3_log_conversion(filename, csv_file, base_name,
                         altitudemode="absolute", altitude_offset=0.0, verbose=False,
-                        fields_choice = ['ROC', 'TOPT', 'AMBT', 'DIFF', 'SOG', 'COG', 'BATM', 'BRDT']):
+                        fields_choice = ['ROC', 'TOPT', 'AMBT', 'DIFF', 'SOG', 'COG', 'BATM', 'BRDT'],
+			use_metric=False):
     """Function to read and convert a DBI3 log file to XML (or other) format
 
     Args:
@@ -35,16 +38,31 @@ def dbi3_log_conversion(filename, csv_file, base_name,
         if fn not in d_fields: next
         do_field[fn] = True
 
+    # Determine unit conversion for additional data fields
+    # Allow additional data fields to be english or metric
+    if not use_metric:
+	tempIsF = True     # False=centegrade
+	altIsFt = True     # False=meters
+	spdIsMph = True    # False=kph
+	varioIsFpm = True  # False=meters per second
+    else:
+        tempIsF = False
+        varioIsFpm = False
+        spdIsMph = False
+        altIsFt = False
+
     log_state = 1  # 1=expecting start line, 2=records
     header_line = False
     tot_recs = 0
     dat_recs = 0
+    bad_recs = 0
     # Monitor min/max track data to calculate a bounding box
     min_lon = 180.0
     max_lon = -180.0
     min_lat = 90.0
     max_lat = -90.0
-    min_topt = 100.0  # when TOPT is missing, we display this default data
+    min_toptF = 100.0  # when TOPT is missing, we display this default data
+    min_toptC = 40.0   # - or this
 
     # initialize data lists to construct the KML output
     kml_start = None  # datetime of the first GPS data line
@@ -59,8 +77,6 @@ def dbi3_log_conversion(filename, csv_file, base_name,
     kml_roc = []
     kml_batm = []
     kml_brdt = []
-
-    bad_data_record = 0  # bad record line statistic
 
     with open(filename) as myfile:
         for line in myfile:
@@ -91,15 +107,16 @@ def dbi3_log_conversion(filename, csv_file, base_name,
                 dbi3_fwver = myvars['FWVER']
                 dbi3_sn = myvars['SN']
                 log_state = 2
-                print 'Start time ' + start_datetime.isoformat(' ')
+                print '  Start time ' + start_datetime.isoformat(' ')
             else:
                 # START record was processed, looking for DATA or STOP records
                 if 'DATE' in myvars.keys():
                     # The presence of a DATE field indicates this is a STOP record
                     m_key = field_check(e_fields, myvars)
                     if m_key is None:
-                        print '  Total records={0}  data records={1}'.format(tot_recs, dat_recs)
-                        print 'End time ' + end_datetime.isoformat('T') + ' Rec time ' + rec_time.isoformat('T')
+                        print '  Total records={}  data records={}  bad records={}'.format(tot_recs,
+                                                                                          dat_recs, bad_recs)
+                        print '  End time ' + end_datetime.isoformat('T') + ' Rec time ' + rec_time.isoformat('T')
                     else:
                         print 'End record missing field ' + m_key
                     break
@@ -137,23 +154,36 @@ def dbi3_log_conversion(filename, csv_file, base_name,
                                 max_lon = kml_lon
                             kml_when.append(rec_time.isoformat('T'))
                             kml_coord.append((kml_lon, kml_lat, float(myvars['ALT'])+altitude_offset))
-                            amb_temp = C_to_F(float(myvars['AMBT']))
-                            top_temp = C_to_F(float(myvars['TOPT'])) if myvars['TOPTS'] == '1' else min_topt
+                            #
+                            # Additional data fields
+                            #
+                            amb_temp = C_to_F(float(myvars['AMBT'])) if tempIsF else float(myvars['AMBT'])
+                            if myvars['TOPTS'] == '1':
+                                top_temp = C_to_F(float(myvars['TOPT'])) if tempIsF else float(myvars['TOPT'])
+                            else:
+                                top_temp = min_toptF if tempIsF else min_toptC
                             if do_field['AMBT']:
                                 kml_a_temp.append(amb_temp)
                             if do_field['TOPT']:
                                 kml_t_temp.append(top_temp)
                             if do_field['DIFF']:
                                 kml_diff_t.append(top_temp-amb_temp)
-                                kml_sog.append(M_to_mi(float(myvars['SOG'])*60*60))
+                            if do_field['SOG']:
+                                sog = float(myvars['SOG'])
+                                sog = M_to_mi(sog * 60 * 60) if spdIsMph else sog
+                                kml_sog.append(sog)
                             if do_field['COG']:
                                 kml_cog.append(float(myvars['COG']))
                             if do_field['ROC']:
-                                kml_roc.append(M_to_ft(float(myvars['ROC'])*60))
+                                roc = float(myvars['ROC'])
+                                roc = M_to_ft(roc * 60) if varioIsFpm else roc
+                                kml_roc.append(roc)
                             if do_field['BATM']:
                                 kml_batm.append(float(myvars['BATM']))
                             if do_field['BRDT']:
-                                kml_brdt.append(C_to_F(float(myvars['BRDT'])))
+                                brdt = float(myvars['BRDT'])
+                                brdt = C_to_F(brdt) if tempIsF else brdt
+                                kml_brdt.append(brdt)
                             # Finished a valid data record, capture the first time as kml_start,
                             # update kml_end on each valid data record so we have the last time.
                             if kml_start is None:
@@ -161,7 +191,7 @@ def dbi3_log_conversion(filename, csv_file, base_name,
                             kml_end = rec_time
                     else:
                         print 'Data record missing field ' + m_key
-                        bad_data_record += 1
+                        bad_recs += 1
                 # Do we increment the time before or after the data records?
                 rec_time += two_seconds
 
@@ -176,31 +206,34 @@ def dbi3_log_conversion(filename, csv_file, base_name,
         # kml timespan is base on the first and last valid data record, not DBI3 log start/end.
         doc.lookat.gxtimespan.begin = kml_start.isoformat('T')
         doc.lookat.gxtimespan.end = kml_end.isoformat('T')
-        doc.lookat.longitude = max_lon - ((max_lon - min_lon)/2)
+        doc.lookat.longitude = max_lon - ((max_lon - min_lon) / 2)
         doc.lookat.latitude = max_lat - ((max_lat - min_lat) / 2)
         doc.lookat.range = distance((min_lat, min_lon), (max_lat, max_lon)) * 1.5
 
         # Create a folder
         fol = doc.newfolder(name='Tracks')
 
-        # Create a schema for extended datad
+        # Create a schema for extended data
+        tempStr = 'F' if tempIsF else 'C'
+        sogStr = 'MPH' if spdIsMph else 'mps'
+        rocStr = 'FPM' if varioIsFpm else 'mps'
         schema = kml.newschema()
         if do_field['AMBT']:
-            schema.newgxsimplearrayfield(name='a_temp', type=Types.float, displayname='Ambient F')
+            schema.newgxsimplearrayfield(name='a_temp', type=Types.float, displayname='Ambient '+tempStr)
         if do_field['TOPT']:
-            schema.newgxsimplearrayfield(name='t_temp', type=Types.float, displayname='Top F')
+            schema.newgxsimplearrayfield(name='t_temp', type=Types.float, displayname='Top '+tempStr)
         if do_field['DIFF']:
-            schema.newgxsimplearrayfield(name='d_temp', type=Types.float, displayname='Diff F')
+            schema.newgxsimplearrayfield(name='d_temp', type=Types.float, displayname='Diff '+tempStr)
         if do_field['COG']:
             schema.newgxsimplearrayfield(name='cog', type=Types.float, displayname='COG')
         if do_field['SOG']:
-            schema.newgxsimplearrayfield(name='sog', type=Types.float, displayname='SOG MPH')
+            schema.newgxsimplearrayfield(name='sog', type=Types.float, displayname='SOG '+sogStr)
         if do_field['ROC']:
-            schema.newgxsimplearrayfield(name='roc', type=Types.float, displayname='ROC FPM')
+            schema.newgxsimplearrayfield(name='roc', type=Types.float, displayname='ROC '+rocStr)
         if do_field['BATM']:
             schema.newgxsimplearrayfield(name='batm', type=Types.float, displayname='BAT V')
         if do_field['BRDT']:
-            schema.newgxsimplearrayfield(name='brdt', type=Types.float, displayname='BRD F')
+            schema.newgxsimplearrayfield(name='brdt', type=Types.float, displayname='BRD '+tempStr)
 
         # Create a new track in the folder
         trk = fol.newgxtrack(name='DBI3 ' + start_datetime.isoformat('T'),
@@ -264,8 +297,8 @@ def ddmm2d(dm):
     dm = dm[:-1]
     min_dec = dm.find('.')
     deg = dm[:min_dec-2]
-    min = dm[min_dec-2:]
-    latlon = float(deg) + float(min)/60.0
+    minutes = dm[min_dec-2:]
+    latlon = float(deg) + float(minutes)/60.0
     if hemi == 'W' or hemi == 'S':
         latlon = 0.0 - latlon
     return latlon
