@@ -28,7 +28,7 @@ from time import sleep
 import re
 from datetime import datetime, timedelta, tzinfo
 import json
-from dbi3_log_conversion import dbi3_log_conversion, ft_to_M
+from dbi3_log_conversion import Dbi3LogConversion, ft_to_M
 
 __version__ = '0.1.alpah1'
 
@@ -169,20 +169,20 @@ def get_DBI3_log(ser, name, path):
     ser.write('fs read {}\r'.format(name))
     res = ''.join(ser.readlines())
     if len(res) == 0:
-	print 'LOG-{} zero length'.format(name)
-	return
+        print 'LOG-{} zero length'.format(name)
+    return
 
     start_dt = fat_to_datetime(name)
     log_name = start_dt.strftime('%Y_%m_%d_%H_%M_%S_DBI3.log')
     log_file = os.path.join(path, log_name)
     with open(log_file, 'w') as log_out:
-	for ln in res.splitlines():
-            # DBI3 outputs terminator as \n\r which is backward.  splitlines
-            # sees a blank line between the two terminators.  Blank lines are
-            # invalid in the log so we can simply ignore them.
-	    if ln == '': continue  # odd newline combos can cause blank lines
-	    log_out.write(ln + '\n')
-	print 'LOG download-{} {} ({})'.format(name, log_name, len(res))
+        for ln in res.splitlines():
+                # DBI3 outputs terminator as \n\r which is backward.  splitlines
+                # sees a blank line between the two terminators.  Blank lines are
+                # invalid in the log so we can simply ignore them.
+            if ln == '': continue  # odd newline combos can cause blank lines
+            log_out.write(ln + '\n')
+    print 'LOG download-{} {} ({})'.format(name, log_name, len(res))
 
     if not os.path.isdir(log_path):
         print "Log file path {} does not exist.".format(log_path)
@@ -272,7 +272,10 @@ def convert_new_logs(log_path, kml_path):
                             data = json.load(meta)
                         print 'RDT conversion meta = {}'.format(data)
                     print 'Convert {} to {}'.format(item, kml_name)
-                    dbi3_log_conversion(log_filename, None, kml_filename, verbose=True)
+
+                    dbi3_obj = Dbi3LogConversion(log_filename, verbose=True)
+                    dbi3_obj.kml_convert(kml_filename)
+                    #dbi3_log_conversion(log_filename, None, kml_filename, verbose=True)
 
 
 dbi_conf = os.path.join(os.path.expanduser('~'), '.DBI3config')

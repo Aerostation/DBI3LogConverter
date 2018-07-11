@@ -84,7 +84,7 @@ if __name__ == '__main__':
         else:
             csv_file = None
         dbi3_log_conversion(fn, csv_file, base_name, altitudemode=args.altitudemode,
-                             altitude_offset=args.altitude_offset, verbose=args.verbose,
-                             fields_choice=do_field, use_metric=args.useMetric)
+                            altitude_offset=args.altitude_offset, verbose=args.verbose,
+                            fields_choice=do_field, kml_use_metric=args.useMetric)
         if csv_file is not None:
             csv_file.close()
