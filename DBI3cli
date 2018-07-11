@@ -27,6 +27,7 @@ import serial
 from time import sleep
 import re
 from datetime import datetime, timedelta, tzinfo
+import json
 from dbi3_log_conversion import dbi3_log_conversion, ft_to_M
 
 __version__ = '0.1.alpah1'
@@ -95,10 +96,20 @@ def fat_to_datetime(rad26):
     return datetime(year, month, day, hour, minute, second, tzinfo=utc)
 
 def get_DBI3_log_list(ser):
-    """Retrieve the DBI3 log list and return it as a list of lists.
+    """Retrieve the sorted DBI3 log list.
 
-    The outer list is the log list, the inner list contains radix26 "start stop",
-    start datetime, stop datetime, constructed log file name.
+    Log names consist of 2 strings containing the log start/end times in DOS FAT
+    timestamp format, encoded in radix26.
+
+    Per the original DigiTool log download, the output filenames are encoded as
+    YYYY_MM_DD_hh_mm_ss_DBI3.log (I added the _DBI3 to differentiate .log files!)
+
+    Args:
+        ser - the serial comm object
+
+    Return:
+        log_list - each list element is a list of radix26_start, radix26_end,
+                   start_datetime, end_datetime, constructed log file name.
     """
     ser.write('md mach\r')
     res = ''.join(ser.readline()).strip()
@@ -179,9 +190,23 @@ def get_DBI3_log(ser, name, path):
 
 
 def download_new_logs(com_port, log_path):
+    """Access DBI3 via the serial port and download new log files.
+
+    Download the current log list and compare against the destination log directory.
+    Download logs that don't already exist.
+
+    Args:
+        com_port - name of the configured comm port
+        log_path - path to store the downloaded log files.
+
+    Return:
+        0 - success
+        1 - no comm port available, skip the download
+        -1 - error
+    """
     if not os.path.exists(com_port):
-        print "COM port {} does not exist.".format(com_port)
-        exit()
+        print "\nCOM port {} does not exist.  Skip DBI3 downloads.\n".format(com_port)
+        return 1
 
     ser = serial.Serial(com_port, 115200, timeout=1)
     ser.dtr = True
@@ -201,13 +226,6 @@ def download_new_logs(com_port, log_path):
                 fileExists = False
             print 'LOG-{} {}  duration {}'.format('   ' if fileExists else 'new', rs[2], rs[3] - rs[2])
 
-    if False:  # this was just to trim the empty logs created 6-19 and after
-        trim_trigger = datetime(2018, 06, 19, tzinfo=utc)
-        for rs in log_list:
-            start_dt = fat_to_datetime(rs[0])
-            #if start_dt > trim_trigger:
-                # delete_DBI3_log(ser, rs[0])
-     
     # Download all logs that we don't already have
     for rs in log_list:
         log_file = os.path.join(log_path, rs[4])
@@ -225,7 +243,7 @@ def download_new_logs(com_port, log_path):
     print 'md mach result={}'.format(res)
 
     ser.close()
-    return
+    return 0
 
 
 def convert_new_logs(log_path, kml_path):
@@ -238,19 +256,26 @@ def convert_new_logs(log_path, kml_path):
         log_path - path containing DBI3 log files
         kml_path - path containing DBI3 kml files
     """
-    prog = re.compile('^(\d{4})_(\d\d)_(\d\d)_(\d\d_){3}DBI3.log$')
-    for item in os.listdir(log_path):
+    prog = re.compile('^(\d{4})_(\d\d)_(\d\d)_(\d\d)_(\d\d)_(\d\d)_DBI3.log$')
+    for item in sorted(os.listdir(log_path)):
         log_filename = os.path.join(log_path, item)
         if os.path.isfile(log_filename):
             match = prog.match(item)
             if match:
                 kml_name = match.expand('\\1\\2\\3_\\4\\5_DBI3')
                 kml_filename = os.path.join(kml_path, kml_name)
+                log_metaname = os.path.join(log_path, '.' + item[0:-4])
                 if not os.path.isfile(kml_filename + '.kml'):
-                    print 'Convert {} to {}'.format(log_filename, kml_filename)
+                    if os.path.isfile(log_metaname):
+                        # meta file to override some conversion settings
+                        with open(log_metaname, 'r') as meta:
+                            data = json.load(meta)
+                        print 'RDT conversion meta = {}'.format(data)
+                    print 'Convert {} to {}'.format(item, kml_name)
                     dbi3_log_conversion(log_filename, None, kml_filename, verbose=True)
 
 
+dbi_conf = os.path.join(os.path.expanduser('~'), '.DBI3config')
 log_path = '/tmp/DBI3'
 kml_path = '/tmp/DBI3/kml'
 com_port = '/dev/ttyDBI3'
@@ -307,6 +332,14 @@ if __name__ ==  "__main__":
             sys.exit(-1)
         else:
             do_field[fn] = True
+
+    if os.path.isfile(dbi_conf):
+        with open(dbi_conf, 'r') as conf_file:
+            data = json.load(conf_file)
+        if 'log_path' in data: log_path = data['log_path']
+        if 'kml_path' in data: kml_path = data['kml_path']
+        if 'com_port' in data: com_port = data['com_port']
+        if 'verbose' in data: verbose = data['verbose']
 
     # Adjust altitude_offset from feet to meters for KML offset
     args.altitude_offset = ft_to_M(args.altitude_offset)

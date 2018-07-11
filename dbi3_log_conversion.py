@@ -18,6 +18,14 @@ d_fields = ['ALT', 'ROC', 'AMBT', 'GPSS', 'SOG', 'COG', 'LONG', 'LAT', 'TOPTS', 
 e_fields = ['DATE', 'TIME']
 do_field = {}
 
+class conv_flags:
+    altitudemode = "absolute"
+    altitude_offset = 0.0
+    extend_to_ground = True
+    useMetric = False
+
+    def __init__():
+        self.altitudemode = "absolute"
 
 def dbi3_log_conversion(filename, csv_file, base_name,
                         altitudemode="absolute", altitude_offset=0.0, verbose=False,
@@ -51,6 +59,8 @@ def dbi3_log_conversion(filename, csv_file, base_name,
         spdIsMph = False
         altIsFt = False
 
+    debug = False
+
     log_state = 1  # 1=expecting start line, 2=records
     header_line = False
     tot_recs = 0
@@ -77,6 +87,8 @@ def dbi3_log_conversion(filename, csv_file, base_name,
     kml_roc = []
     kml_batm = []
     kml_brdt = []
+
+    proc_log = ''
 
     with open(filename) as myfile:
         for line in myfile:
@@ -107,16 +119,16 @@ def dbi3_log_conversion(filename, csv_file, base_name,
                 dbi3_fwver = myvars['FWVER']
                 dbi3_sn = myvars['SN']
                 log_state = 2
-                print '  Start time ' + start_datetime.isoformat(' ')
+                proc_log += '  Start time ' + start_datetime.isoformat(' ')
             else:
                 # START record was processed, looking for DATA or STOP records
                 if 'DATE' in myvars.keys():
                     # The presence of a DATE field indicates this is a STOP record
                     m_key = field_check(e_fields, myvars)
                     if m_key is None:
-                        print '  Total records={}  data records={}  bad records={}'.format(tot_recs,
+                        proc_log += '\n  Total records={}  data records={}  bad records={}'.format(tot_recs,
                                                                                           dat_recs, bad_recs)
-                        print '  End time ' + end_datetime.isoformat('T') + ' Rec time ' + rec_time.isoformat('T')
+                        proc_log += '\n  End time ' + end_datetime.isoformat('T') + ' Rec time ' + rec_time.isoformat('T')
                     else:
                         print 'End record missing field ' + m_key
                     break
@@ -138,7 +150,7 @@ def dbi3_log_conversion(filename, csv_file, base_name,
                                     ',' + myvars['LAT'] + ',' + myvars['LONG'] + \
                                     ',' + myvars['COG'] + ',' + myvars['SOG'] + \
                                     ',' + myvars['AMBT']
-                            if verbose:
+                            if debug:
                                 print 'Record ' + rec_time.isoformat('T') + ' ' + myvars['LAT'] + ' ' + myvars['LONG']
 
                             # calculate and accumulate KML data
@@ -196,13 +208,15 @@ def dbi3_log_conversion(filename, csv_file, base_name,
                 rec_time += two_seconds
 
         if dat_recs == 0:
-            print 'No GPS data records, skip KML file generations'
+            print '    No GPS data records, skip KML file generations'
             return
+        else:
+            print proc_log
 
         # write the KML
         # Create the KML document
         kml = Kml(name="Tracks", open=1)
-        doc = kml.newdocument(name='GPS device', snippet=Snippet('DBI3LogConverter Created Wed Jun 2 15:33:39 2010'))
+        doc = kml.newdocument(name='GPS device', snippet=Snippet('DBI3LogConverter'))
         # kml timespan is base on the first and last valid data record, not DBI3 log start/end.
         doc.lookat.gxtimespan.begin = kml_start.isoformat('T')
         doc.lookat.gxtimespan.end = kml_end.isoformat('T')
