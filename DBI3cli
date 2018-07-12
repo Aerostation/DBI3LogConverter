@@ -22,6 +22,7 @@ Bits    Description
 
 """
 import os
+import sys
 import argparse
 import serial
 from time import sleep
@@ -170,7 +171,7 @@ def get_DBI3_log(ser, name, path):
     res = ''.join(ser.readlines())
     if len(res) == 0:
         print 'LOG-{} zero length'.format(name)
-    return
+        return
 
     start_dt = fat_to_datetime(name)
     log_name = start_dt.strftime('%Y_%m_%d_%H_%M_%S_DBI3.log')
@@ -275,8 +276,6 @@ def convert_new_logs(log_path, kml_path):
 
                     dbi3_obj = Dbi3LogConversion(log_filename, verbose=True)
                     dbi3_obj.kml_convert(kml_filename)
-                    #dbi3_log_conversion(log_filename, None, kml_filename, verbose=True)
-
 
 dbi_conf = os.path.join(os.path.expanduser('~'), '.DBI3config')
 log_path = '/tmp/DBI3'
@@ -336,6 +335,7 @@ if __name__ ==  "__main__":
         else:
             do_field[fn] = True
 
+    # Read the optional config file to override our default settings
     if os.path.isfile(dbi_conf):
         with open(dbi_conf, 'r') as conf_file:
             data = json.load(conf_file)

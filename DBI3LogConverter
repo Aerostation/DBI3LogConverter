@@ -6,7 +6,7 @@ import sys
 import argparse
 from datetime import datetime
 from datetime import timedelta
-from dbi3_log_conversion import dbi3_log_conversion, ft_to_M
+from dbi3_log_conversion import Dbi3LogConversion, ft_to_M
 
 __version__ = '0.4.alpah1'
 
@@ -83,8 +83,10 @@ if __name__ == '__main__':
             csv_file = open(filename, 'w')
         else:
             csv_file = None
-        dbi3_log_conversion(fn, csv_file, base_name, altitudemode=args.altitudemode,
-                            altitude_offset=args.altitude_offset, verbose=args.verbose,
-                            fields_choice=do_field, kml_use_metric=args.useMetric)
+
+        dbi3 = Dbi3LogConversion(fn, altitudemode=args.altitudemode,
+                                 altitude_offset=args.altitude_offset, verbose=args.verbose,
+                                 fields_choice=do_field, kml_use_metric=args.useMetric)
+        dbi3.kml_convert(base_name)
         if csv_file is not None:
             csv_file.close()
