@@ -35,6 +35,13 @@ __version__ = '0.1.alpah1'
 
 ORD_A = ord('A')
 
+MD_MACH = 'md mach'
+FS_STOP = 'fs stop'
+# DBI3 response to simple commands is ok or nok, sometimes we need to know the specific
+# response, others we just need any valid response.
+RESP_OK = ['ok']
+RESP_NOK = ['nok']
+RESP_ANY = ['ok', 'nok']
 
 def radix26_to_int(rad26):
     """ DBI3 log names are radix 26 encoded string.  Seven upper case characters
@@ -96,6 +103,16 @@ def fat_to_datetime(rad26):
     year = (fat & 0x7F) + 1980
     return datetime(year, month, day, hour, minute, second, tzinfo=utc)
 
+
+def do_DBI3_cmd(ser, cmd, allowed_resp):
+    ser.write(cmd + '\r')
+    res = ''.join(ser.readline()).strip()
+    #print 'fs stop result={}'.format(res)
+    if res not in allowed_resp:
+        raise IOError('cmd:{} expect:{} got:{}'.format(cmd, allowed_resp, res))
+    return res
+
+
 def get_DBI3_log_list(ser):
     """Retrieve the sorted DBI3 log list.
 
@@ -112,13 +129,15 @@ def get_DBI3_log_list(ser):
         log_list - each list element is a list of radix26_start, radix26_end,
                    start_datetime, end_datetime, constructed log file name.
     """
-    ser.write('md mach\r')
-    res = ''.join(ser.readline()).strip()
-    print 'md mach ({}) result={}'.format(len(res), res)
+    # ser.write('md mach\r')
+    # res = ''.join(ser.readline()).strip()
+    # print 'md mach ({}) result={}'.format(len(res), res)
 
-    ser.write('fs stop\r')
-    res = ''.join(ser.readline()).strip()
-    print 'fs stop result={}'.format(res)
+    # ser.write('fs stop\r')
+    # res = ''.join(ser.readline()).strip()
+    # print 'fs stop result={}'.format(res)
+    do_DBI3_cmd(ser, MD_MACH, RESP_OK)
+    do_DBI3_cmd(ser, FS_STOP, RESP_ANY)
 
     ser.write('fs list\r')
     res_list = ''.join(ser.readlines()).strip()
@@ -140,42 +159,78 @@ def get_DBI3_log_list(ser):
 
 def delete_DBI3_log(ser, name):
     print 'Will delete {}'.format(name)
-    ser.write('md mach\r')
-    res = ''.join(ser.readline()).strip()
-    print 'md mach ({}) result={}'.format(len(res), res)
-
-    ser.write('fs stop\r')
-    res = ''.join(ser.readline()).strip()
-    print 'fs stop result={}'.format(res)
+    # ser.write('md mach\r')
+    # res = ''.join(ser.readline()).strip()
+    # print 'md mach ({}) result={}'.format(len(res), res)
+    #
+    # ser.write('fs stop\r')
+    # res = ''.join(ser.readline()).strip()
+    # print 'fs stop result={}'.format(res)
+    do_DBI3_cmd(ser, MD_MACH, RESP_OK)
+    do_DBI3_cmd(ser, FS_STOP, RESP_ANY)
 
     ser.write('fs del {}\r'.format(name))
     oldTimeout = ser.timeout
     ser.timeout = 20
     # DELETE appears to have no response, so a "md mach" is queued to produce an OK/NOK
-    ser.write('md mach\r')
-    res = ''.join(ser.readline()).strip()
+    # ser.write('md mach\r')
+    # res = ''.join(ser.readline()).strip()
+    res = do_DBI3_cmd(ser, MD_MACH, RESP_OK)
     ser.timeout = oldTimeout
     print 'fs delete ({}) result={}'.format(len(res), res)
     return True
 
-def get_DBI3_log(ser, name, path):
-    ser.write('md mach\r')
-    res = ''.join(ser.readline()).strip()
-    print 'md mach result={}'.format(res)
 
-    ser.write('fs stop\r')
-    res = ''.join(ser.readline()).strip()
-    print 'fs stop result={}'.format(res)
+def readUntil(ser, eol):
+    """Read serial port until eol string or timeout"""
+    output = []
+    len_eol = len(eol)
+    while 1:
+        ch = ser.read(1)
+        if len(ch) == 0:
+            return None  # timeout looking for eol
+        output += ch
+        if output[-len_eol:] == eol:
+            break
+    return''.join(output[0:-len_eol])  # trim eol off the return
+
+
+def get_DBI3_log(ser, name, path):
+    # ser.write('md mach\r')
+    # res = ''.join(ser.readline()).strip()
+    # print 'md mach result={}'.format(res)
+    #
+    # ser.write('fs stop\r')
+    # res = ''.join(ser.readline()).strip()
+    # print 'fs stop result={}'.format(res)
+    do_DBI3_cmd(ser, MD_MACH, RESP_OK)
+    do_DBI3_cmd(ser, FS_STOP, RESP_ANY)
+
+    start_dt = fat_to_datetime(name)
+    log_name = start_dt.strftime('%Y_%m_%d_%H_%M_%S_DBI3.log')
+    log_file = os.path.join(path, log_name)
 
     ser.write('fs read {}\r'.format(name))
+
+    # # TODO work in progress, process line by line
+    # line_count = 0
+    # # TODO don't open the log until we have atleast one line
+    # with open(log_file, 'w') as log_out:
+    #     res = readUntil(ser, '\n\r')
+    #     while res:
+    #         line_count += 1
+    #         log_out.write(res + '\n')
+    #         res = readUntil(ser, '\n\r')
+    # if line_count == 0:
+    #     print 'LOG-{} zero length'.format(name)
+    #     return
+    # print 'LOG download-{} {} ({})'.format(name, log_name, len(res))
+
     res = ''.join(ser.readlines())
     if len(res) == 0:
         print 'LOG-{} zero length'.format(name)
         return
 
-    start_dt = fat_to_datetime(name)
-    log_name = start_dt.strftime('%Y_%m_%d_%H_%M_%S_DBI3.log')
-    log_file = os.path.join(path, log_name)
     with open(log_file, 'w') as log_out:
         for ln in res.splitlines():
                 # DBI3 outputs terminator as \n\r which is backward.  splitlines
@@ -184,10 +239,6 @@ def get_DBI3_log(ser, name, path):
             if ln == '': continue  # odd newline combos can cause blank lines
             log_out.write(ln + '\n')
     print 'LOG download-{} {} ({})'.format(name, log_name, len(res))
-
-    if not os.path.isdir(log_path):
-        print "Log file path {} does not exist.".format(log_path)
-        exit()
 
 
 def download_new_logs(com_port, log_path):
@@ -235,13 +286,15 @@ def download_new_logs(com_port, log_path):
             get_DBI3_log(ser, rs[0], log_path)
 
     # Clear any ongoing operations before we close the serial port
-    ser.write('fs stop\r')
-    res = ''.join(ser.readline()).strip()
-    print 'fs stop result={}'.format(res)
-
-    ser.write('md mach\r')
-    res = ''.join(ser.readline()).strip()
-    print 'md mach result={}'.format(res)
+    # ser.write('fs stop\r')
+    # res = ''.join(ser.readline()).strip()
+    # print 'fs stop result={}'.format(res)
+    #
+    # ser.write('md mach\r')
+    # res = ''.join(ser.readline()).strip()
+    # print 'md mach result={}'.format(res)
+    do_DBI3_cmd(ser, FS_STOP, RESP_ANY)
+    do_DBI3_cmd(ser, MD_MACH, RESP_OK)
 
     ser.close()
     return 0

@@ -322,13 +322,13 @@ class Dbi3LogConversion:
             # the track object.
             property_table = '''<![CDATA[\
             <table>
-            <tr><td><b>Distance</b>{:.2f} {}</td><tr>
-            <tr><td><b>Min Alt</b>{:.2f} {}</td><tr>
-            <tr><td><b>Max Alt</b>{:.2f} {}</td><tr>
-            <tr><td><b>Max Speed</b>{:.2f}({:.2f}) {}</td><tr>
-            <tr><td><b>Avg Speed</b>{:.2f} {}</td><tr>
-            <tr><td><b>Start Time</b>{}</td><tr>
-            <tr><td><b>End Time</b>{}</td><tr>
+            <tr><td><b>Distance </b>{:.2f} {}</td><tr>
+            <tr><td><b>Min Alt </b>{:.2f} {}</td><tr>
+            <tr><td><b>Max Alt </b>{:.2f} {}</td><tr>
+            <tr><td><b>Max Speed </b>{:.2f}({:.2f}) {}</td><tr>
+            <tr><td><b>Avg Speed </b>{:.2f} {}</td><tr>
+            <tr><td><b>Start Time </b>{}</td><tr>
+            <tr><td><b>End Time </b>{}</td><tr>
             </table>]]>
             DBI3  {}  FWVER {}'''.format(M_to_mi(elapsed_dist) if spdIsMph else elapsed_dist, distStr,
                                               M_to_ft(min_altitude) if altIsFt else min_altitude, altStr,
