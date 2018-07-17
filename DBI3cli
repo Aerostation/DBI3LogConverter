@@ -19,21 +19,23 @@ Bits    Description
 10-5    Minutes (0-59)
 4-0     Seconds/2 (0-29)
 
-
 """
 import os
 import sys
 import argparse
 import serial
-from time import sleep
 import re
 from datetime import datetime, timedelta, tzinfo
 import json
+import collections
 from dbi3_log_conversion import Dbi3LogConversion, ft_to_M
 
 __version__ = '0.1.alpah1'
 
 ORD_A = ord('A')
+
+DBI3_EOL = '\n\r'  # DBI3 uses backward EOL. std since the teletype has been \r\n (allowed
+                   #  carriage to physically return during line-feed
 
 MD_MACH = 'md mach'
 FS_STOP = 'fs stop'
@@ -43,9 +45,23 @@ RESP_OK = ['ok']
 RESP_NOK = ['nok']
 RESP_ANY = ['ok', 'nok']
 
+# Define a named tuple for DBI3 log entry rows
+LogList = collections.namedtuple('LogList', 'name_start name_end start_dt end_dt log_name download meta_name override')
+
+dbi_conf = os.path.join(os.path.expanduser('~'), '.DBI3config')
+log_path = '/tmp/DBI3'
+kml_path = '/tmp/DBI3/kml'
+com_port = '/dev/ttyDBI3'
+verbose = True
+serial_fd = None  # initialized to the serial file descriptor for the DBI3 serial comm port
+
+
 def radix26_to_int(rad26):
     """ DBI3 log names are radix 26 encoded string.  Seven upper case characters
     where each character is a number from 0-26 and converts to a 32bit integer.
+
+    :param str rad26: 7 character log name, Radix 26 encoded
+    :return int: Translation of rad26 to integer
     """
     encoded_int = 0
 
@@ -59,13 +75,14 @@ class UTC(tzinfo):
     """UTC tzinfo"""
 
     def utcoffset(self, dt):
-       return timedelta(0)
+        return timedelta(0)
 
     def tzname(self, dt):
-       return "UTC"
+        return "UTC"
 
     def dst(self, dt):
-       return timedelta(0)
+        return timedelta(0)
+
 
 utc = UTC()  # tzinfo for UTC
 
@@ -88,6 +105,9 @@ def fat_to_datetime(rad26):
     15-11   Hours (0-23)
     10-5    Minutes (0-59)
     4-0     Seconds/2 (0-29)
+
+    :param str rad26: 7 character log name, Radix 26 encoded
+    :return datetime: Translation of rad26
     """
     fat = radix26_to_int(rad26)
     second = (fat & 0x1F) * 2
@@ -104,16 +124,56 @@ def fat_to_datetime(rad26):
     return datetime(year, month, day, hour, minute, second, tzinfo=utc)
 
 
-def do_DBI3_cmd(ser, cmd, allowed_resp):
-    ser.write(cmd + '\r')
-    res = ''.join(ser.readline()).strip()
-    #print 'fs stop result={}'.format(res)
+def __initialize_dbi3_serial_port():
+    """Initialize the comm port for DBI3 communications.
+
+    Read any pending data from the DBI3.
+
+    :return:
+    :raise IOError: If the comm port does not exist.
+    """
+    global serial_fd
+    if serial_fd is not None:
+        return  # serial port is already initialized
+
+    if not os.path.exists(com_port):
+        raise IOError('initialize serial port {} does not exist'.format(com_port))
+
+    serial_fd = serial.Serial(com_port, 115200, timeout=1)
+    serial_fd.dtr = True
+    serial_fd.rts = True
+
+    # Ensure any pending data is flushed from the DBI3
+    while True:
+        rd_cnt = serial_fd.in_waiting + 1  # read for 1 more char, timeout if it doesn't arive.
+        res = serial_fd.read(rd_cnt)
+        if len(res) < rd_cnt:
+            # read was short, we must have timedout waiting, DBI3 finished any output
+            break
+
+
+def do_DBI3_cmd(cmd, allowed_resp):
+    """
+    Send a command to the DBI3, read and compare the response to the allowed list.
+
+    :param str cmd: command string to send, does not include any trailing EOL
+    :param list,str allowed_resp: allowed response strings
+    :return str: The stripped response
+    :raise IOerror:  If the response is not in the allowed list
+    """
+    if serial_fd is None:
+        # The first command ensures the serial port has been initialized.
+        __initialize_dbi3_serial_port()
+
+    serial_fd.write(cmd + '\r')
+    res = readDbi3Line()
+    # print 'fs stop result={}'.format(res)
     if res not in allowed_resp:
         raise IOError('cmd:{} expect:{} got:{}'.format(cmd, allowed_resp, res))
     return res
 
 
-def get_DBI3_log_list(ser):
+def get_DBI3_log_list():
     """Retrieve the sorted DBI3 log list.
 
     Log names consist of 2 strings containing the log start/end times in DOS FAT
@@ -122,152 +182,51 @@ def get_DBI3_log_list(ser):
     Per the original DigiTool log download, the output filenames are encoded as
     YYYY_MM_DD_hh_mm_ss_DBI3.log (I added the _DBI3 to differentiate .log files!)
 
-    Args:
-        ser - the serial comm object
+    After retrieving the log list from the DBI3 we check our configured log_path
+    for corresponding log files and automatically select (mark download=True) each
+    new DBI3 log.  Also retrieve any conversion metadata file for each log.
 
-    Return:
-        log_list - each list element is a list of radix26_start, radix26_end,
-                   start_datetime, end_datetime, constructed log file name.
+    :return list,namedtuple LogList: - LogList elements
+        each list element named tuple of name_start=radix26_start, name_end=radix26_end,
+        start_dt=start_datetime, end_dt=end_datetime, log_name=constructed log file name,
+        download=True/False, metadata=None or conversion metadata.
     """
-    # ser.write('md mach\r')
-    # res = ''.join(ser.readline()).strip()
-    # print 'md mach ({}) result={}'.format(len(res), res)
+    do_DBI3_cmd(MD_MACH, RESP_OK)
+    do_DBI3_cmd(FS_STOP, RESP_ANY)
 
-    # ser.write('fs stop\r')
-    # res = ''.join(ser.readline()).strip()
-    # print 'fs stop result={}'.format(res)
-    do_DBI3_cmd(ser, MD_MACH, RESP_OK)
-    do_DBI3_cmd(ser, FS_STOP, RESP_ANY)
-
-    ser.write('fs list\r')
-    res_list = ''.join(ser.readlines()).strip()
-    print 'fs list (count {})'.format(len(res_list))
+    serial_fd.write('fs list\r')
 
     log_list = []
-    for ln in res_list.splitlines():
-        if ln == '': continue
-        rs = ln.split(' ')
+
+    res = readDbi3Line()
+    while res:
+        rs = res.split(' ')
         start_dt = fat_to_datetime(rs[0])
         stop_dt = fat_to_datetime(rs[1])
 
-        log_name = start_dt.strftime('%Y_%m_%d_%H_%M_%S_DBI3.log')
-        rs.extend([start_dt, stop_dt, log_name])
-        log_list.append(rs)
+        log_basename = start_dt.strftime('%Y_%m_%d_%H_%M_%S_DBI3')
+        log_name = log_basename + '.log'
+        log_metaname = '.' + log_basename  # hidden filename for conversion metadata
+
+        log_file = os.path.join(log_path, log_name)
+        log_metafile = os.path.join(log_path, log_metaname)
+
+        if not os.path.isfile(log_file):
+            download = True
+        else:
+            download = False
+
+        metadata = None
+        if os.path.isfile(log_metafile):
+            # meta file to override some conversion settings
+            with open(log_metafile, 'r') as meta:
+                metadata = json.load(meta)
+
+        log_list.append(LogList(rs[0], rs[1], start_dt, stop_dt, log_name, download, log_metaname, metadata))
+        res = readDbi3Line()  # Try for another line
+
     log_list.sort()
     print 'log_list length {}'.format(len(log_list))
-    return log_list
-
-def delete_DBI3_log(ser, name):
-    print 'Will delete {}'.format(name)
-    # ser.write('md mach\r')
-    # res = ''.join(ser.readline()).strip()
-    # print 'md mach ({}) result={}'.format(len(res), res)
-    #
-    # ser.write('fs stop\r')
-    # res = ''.join(ser.readline()).strip()
-    # print 'fs stop result={}'.format(res)
-    do_DBI3_cmd(ser, MD_MACH, RESP_OK)
-    do_DBI3_cmd(ser, FS_STOP, RESP_ANY)
-
-    ser.write('fs del {}\r'.format(name))
-    oldTimeout = ser.timeout
-    ser.timeout = 20
-    # DELETE appears to have no response, so a "md mach" is queued to produce an OK/NOK
-    # ser.write('md mach\r')
-    # res = ''.join(ser.readline()).strip()
-    res = do_DBI3_cmd(ser, MD_MACH, RESP_OK)
-    ser.timeout = oldTimeout
-    print 'fs delete ({}) result={}'.format(len(res), res)
-    return True
-
-
-def readUntil(ser, eol):
-    """Read serial port until eol string or timeout"""
-    output = []
-    len_eol = len(eol)
-    while 1:
-        ch = ser.read(1)
-        if len(ch) == 0:
-            return None  # timeout looking for eol
-        output += ch
-        if output[-len_eol:] == eol:
-            break
-    return''.join(output[0:-len_eol])  # trim eol off the return
-
-
-def get_DBI3_log(ser, name, path):
-    # ser.write('md mach\r')
-    # res = ''.join(ser.readline()).strip()
-    # print 'md mach result={}'.format(res)
-    #
-    # ser.write('fs stop\r')
-    # res = ''.join(ser.readline()).strip()
-    # print 'fs stop result={}'.format(res)
-    do_DBI3_cmd(ser, MD_MACH, RESP_OK)
-    do_DBI3_cmd(ser, FS_STOP, RESP_ANY)
-
-    start_dt = fat_to_datetime(name)
-    log_name = start_dt.strftime('%Y_%m_%d_%H_%M_%S_DBI3.log')
-    log_file = os.path.join(path, log_name)
-
-    ser.write('fs read {}\r'.format(name))
-
-    # # TODO work in progress, process line by line
-    # line_count = 0
-    # # TODO don't open the log until we have atleast one line
-    # with open(log_file, 'w') as log_out:
-    #     res = readUntil(ser, '\n\r')
-    #     while res:
-    #         line_count += 1
-    #         log_out.write(res + '\n')
-    #         res = readUntil(ser, '\n\r')
-    # if line_count == 0:
-    #     print 'LOG-{} zero length'.format(name)
-    #     return
-    # print 'LOG download-{} {} ({})'.format(name, log_name, len(res))
-
-    res = ''.join(ser.readlines())
-    if len(res) == 0:
-        print 'LOG-{} zero length'.format(name)
-        return
-
-    with open(log_file, 'w') as log_out:
-        for ln in res.splitlines():
-                # DBI3 outputs terminator as \n\r which is backward.  splitlines
-                # sees a blank line between the two terminators.  Blank lines are
-                # invalid in the log so we can simply ignore them.
-            if ln == '': continue  # odd newline combos can cause blank lines
-            log_out.write(ln + '\n')
-    print 'LOG download-{} {} ({})'.format(name, log_name, len(res))
-
-
-def download_new_logs(com_port, log_path):
-    """Access DBI3 via the serial port and download new log files.
-
-    Download the current log list and compare against the destination log directory.
-    Download logs that don't already exist.
-
-    Args:
-        com_port - name of the configured comm port
-        log_path - path to store the downloaded log files.
-
-    Return:
-        0 - success
-        1 - no comm port available, skip the download
-        -1 - error
-    """
-    if not os.path.exists(com_port):
-        print "\nCOM port {} does not exist.  Skip DBI3 downloads.\n".format(com_port)
-        return 1
-
-    ser = serial.Serial(com_port, 115200, timeout=1)
-    ser.dtr = True
-    ser.rts = True
-    print (ser.get_settings())
-
-    # log list elements contain list 'startRad26, stopRad26, start_dt, stop_dt, log_filename'
-    log_list = get_DBI3_log_list(ser)
-
     if verbose:
         for rs in log_list:
             log_file = os.path.join(log_path, rs[4])
@@ -276,39 +235,119 @@ def download_new_logs(com_port, log_path):
                 fileExists = True
             else:
                 fileExists = False
-            print 'LOG-{} {}  duration {}'.format('   ' if fileExists else 'new', rs[2], rs[3] - rs[2])
+            print 'LOG-{} {}  duration {}  download:{} override:{}'.format('   ' if fileExists else 'new', rs[2],
+                                                                           rs[3] - rs[2], rs.download, rs.override)
+
+    return log_list
+
+
+def delete_DBI3_log(name):
+    print 'Will delete {}'.format(name)
+    do_DBI3_cmd(MD_MACH, RESP_OK)
+    do_DBI3_cmd(FS_STOP, RESP_ANY)
+
+    serial_fd.write('fs del {}\r'.format(name))
+    oldTimeout = serial_fd.timeout
+    # DELETE appears to have no response, so a "md mach" is queued to produce an OK/NOK
+    serial_fd.timeout = 20
+    res = do_DBI3_cmd(MD_MACH, RESP_OK)
+    serial_fd.timeout = oldTimeout
+    print 'fs delete ({}) result={}'.format(len(res), res)
+    return True
+
+
+def readDbi3Line():
+    """Read serial port until eol string or timeout.
+
+    Strip leading/trailing whitespace from the line.
+
+    :return:
+        None - if timeout waiting for EOL sequence
+        str - stripped line from DBI3
+    """
+    output = []
+    eol = list(DBI3_EOL)
+    len_eol = len(DBI3_EOL)
+    while True:
+        ch = serial_fd.read(1)
+        if len(ch) == 0:
+            if len(output) != 0:
+                print "readDbi3Line timeout with-\n[{}]".format(''.join(output))
+            return None  # timeout looking for eol
+        output += ch
+        if output[-len_eol:] == eol:
+            break
+    return ''.join(output[0:-len_eol]).strip()  # trim eol off the return
+
+
+def get_DBI3_log(name, path):
+    """Down load the specified log from the DBI3 serial connection.
+
+    Read and write the log one line at a time to avoid massive buffers
+    from a very long duration log.
+
+    :param str name: DBI3 log name to down load (Rad26 7 char name)
+    :param str path: Destination path for DBI3 logs
+    :return:
+    """
+    do_DBI3_cmd(MD_MACH, RESP_OK)
+    do_DBI3_cmd(FS_STOP, RESP_ANY)
+
+    start_dt = fat_to_datetime(name)
+    log_name = start_dt.strftime('%Y_%m_%d_%H_%M_%S_DBI3.log')
+    log_file = os.path.join(path, log_name)
+
+    serial_fd.write('fs read {}\r'.format(name))
+
+    line_count = 0
+    # Don't open the log until we have at least one line
+    res = readDbi3Line()
+    if res is None or res == '':
+        print 'LOG-{} zero length'.format(name)
+        return
+
+    with open(log_file, 'w') as log_out:
+        while res:
+            line_count += 1
+            log_out.write(res + '\n')
+            res = readDbi3Line()
+    print 'LOG download-{} {} ({})'.format(name, log_name, line_count)
+
+
+def download_selected_logs(log_list):
+    """Access DBI3 via the serial port and download new log files.
+
+    Download the current log list and compare against the destination log directory.
+    Download logs that don't already exist.
+
+        :param list:LogList log_list: list of logs on the DBI3
+        :return int:
+            0 - Success
+            1 - no comm port available, skip the download
+            -1 - error
+   """
 
     # Download all logs that we don't already have
     for rs in log_list:
-        log_file = os.path.join(log_path, rs[4])
-
-        if not os.path.isfile(log_file):
-            get_DBI3_log(ser, rs[0], log_path)
+        if rs.download:
+            get_DBI3_log(rs.name_start, log_path)
 
     # Clear any ongoing operations before we close the serial port
-    # ser.write('fs stop\r')
-    # res = ''.join(ser.readline()).strip()
-    # print 'fs stop result={}'.format(res)
-    #
-    # ser.write('md mach\r')
-    # res = ''.join(ser.readline()).strip()
-    # print 'md mach result={}'.format(res)
-    do_DBI3_cmd(ser, FS_STOP, RESP_ANY)
-    do_DBI3_cmd(ser, MD_MACH, RESP_OK)
+    do_DBI3_cmd(FS_STOP, RESP_ANY)
+    do_DBI3_cmd(MD_MACH, RESP_OK)
 
-    ser.close()
     return 0
 
 
 def convert_new_logs(log_path, kml_path):
     """Convert new DBI3 logs to kml output
 
-    For each DBI3 log file, it the corresponding kml file does not exists,
+    For each DBI3 log file, if the corresponding kml file does not exists,
     run the conversion.
 
-    Args:
-        log_path - path containing DBI3 log files
-        kml_path - path containing DBI3 kml files
+    :param str log_path: path containing DBI3 log files
+    :param str kml_path: path containing DBI3 kml files
+    :return:
     """
     prog = re.compile('^(\d{4})_(\d\d)_(\d\d)_(\d\d)_(\d\d)_(\d\d)_DBI3.log$')
     for item in sorted(os.listdir(log_path)):
@@ -330,11 +369,6 @@ def convert_new_logs(log_path, kml_path):
                     dbi3_obj = Dbi3LogConversion(log_filename, verbose=True)
                     dbi3_obj.kml_convert(kml_filename)
 
-dbi_conf = os.path.join(os.path.expanduser('~'), '.DBI3config')
-log_path = '/tmp/DBI3'
-kml_path = '/tmp/DBI3/kml'
-com_port = '/dev/ttyDBI3'
-verbose = True
 
 def process_dbi():
     if not os.path.isdir(log_path):
@@ -344,19 +378,34 @@ def process_dbi():
         print "KML file path {} does not exist.".format(kml_path)
         exit()
 
-    download_new_logs(com_port, log_path)
+    try:
+        # log list elements contain list 'startRad26, stopRad26, start_dt, stop_dt, log_filename'
+        # The log list automatically marks new logs as selected for download.
+        log_list = get_DBI3_log_list()
+
+        if log_list is not None:
+            download_selected_logs(log_list)
+
+        # We are don't talking to the DBI3 so close any serial connection.
+        if serial_fd is not None:
+            serial_fd.close()
+    except IOError as e:
+        print 'IO error with DBI3 on {}: {}'.format(com_port, e.message)
+        print 'Skip DBI3 log downloads'
+        # Continue on with any log conversions
 
     convert_new_logs(log_path, kml_path)
 
-if __name__ ==  "__main__":
+
+if __name__ == "__main__":
     fields_choice = ['ROC', 'TOPT', 'AMBT', 'DIFF', 'SOG', 'COG', 'BATM', 'BRDT']
     fields_default = ['AMBT', 'TOPT', 'DIFF']
     do_field = {}
 
     parser = argparse.ArgumentParser(description="Convert DBI3 log file(s) to KML format.",
-            epilog="  Output filename is the input root name with a .kml extension.  The " +
-            "optional unicsv format can be converted to other useful formats (such as GPX) by " +
-                   "the GPSBabel application")
+                                     epilog="  Output filename is the input root name with a .kml extension.  The " +
+                                            "optional unicsv format can be converted to other useful formats (such as GPX) by " +
+                                            "the GPSBabel application")
     parser.add_argument('--fields', action='store', default=fields_default,
                         type=lambda s: s.split(','),
                         help='Which DBI3 data fields should be included in the KML output, default={}, choices={}, ALL turns on all fields'
@@ -373,7 +422,7 @@ if __name__ ==  "__main__":
                         help='enable unicsv output file')
     parser.add_argument('--verbose', action='store_true', default=False,
                         help='verbose output during processing')
-    parser.add_argument('-V', '--version', action='version', version='%(prog)s ('+__version__+')')
+    parser.add_argument('-V', '--version', action='version', version='%(prog)s (' + __version__ + ')')
     args = parser.parse_args()
     # Verifiy the fields list and set the field names in a boolean dictionary
     for fn in fields_choice:
@@ -401,12 +450,12 @@ if __name__ ==  "__main__":
     args.altitude_offset = ft_to_M(args.altitude_offset)
 
     # Verify destination path, or construct destination from first log file path
-#    if args.dest_dir is None:
-#        dest_dir = os.path.dirname(args.filename[0])
-#    elif not os.path.isdir(args.dest_dir):
-#        print '-d ' + args.dest_dir + " path does not exists"
-#        sys.exit(-1)
-#    else:
-#        dest_dir = args.dest_dir
+    #    if args.dest_dir is None:
+    #        dest_dir = os.path.dirname(args.filename[0])
+    #    elif not os.path.isdir(args.dest_dir):
+    #        print '-d ' + args.dest_dir + " path does not exists"
+    #        sys.exit(-1)
+    #    else:
+    #        dest_dir = args.dest_dir
 
     process_dbi()
