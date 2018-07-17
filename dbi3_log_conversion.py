@@ -74,9 +74,7 @@ class Dbi3LogConversion:
             for fld in self.config_attr:
                 if fld in data: setattr(self, fld, data[fld])
 
-
     def kml_convert(self, base_name):
-
         """Function to read and convert a DBI3 log file to KML format
 
         Args:
@@ -116,7 +114,7 @@ class Dbi3LogConversion:
         min_lat = 90.0
         max_lat = -90.0
         min_toptF = 100.0  # when TOPT is missing, we display this default data
-        min_toptC = 40.0   # - or this
+        min_toptC = 40.0  # - or this
 
         # "Trip Computer" fields.  Summary fields of a given track.
         elapsed_dist = 0.0  # summation of Meters between pairs of points
@@ -142,8 +140,6 @@ class Dbi3LogConversion:
         proc_log = ''  # Accumulate print output from the entire conversion
 
         with open(self.filename) as myfile:
-            start_datetime = None
-            end_datetime = None
             rec_time = None
             # calculate elapsed distance by summing distance between last and current point
             last_lat = None
@@ -164,7 +160,7 @@ class Dbi3LogConversion:
 
                 if 'DATE' in logvars.keys():
                     # datetime from a start or end line
-                    log_datetime = datetime.strptime(logvars['DATE']+' '+logvars['TIME'], '%Y-%m-%d %H:%M:%S')
+                    log_datetime = datetime.strptime(logvars['DATE'] + ' ' + logvars['TIME'], '%Y-%m-%d %H:%M:%S')
                 else:
                     log_datetime = None
 
@@ -186,8 +182,9 @@ class Dbi3LogConversion:
                     if missing_key is None:
                         log_state = 3
                         proc_log += '\n  Total records={}  data records={}  bad records={}'.format(tot_recs,
-                                                                                          dat_recs, bad_recs)
-                        proc_log += '\n  End time ' + end_datetime.isoformat('T') + ' Rec time ' + rec_time.isoformat('T')
+                                                                                                   dat_recs, bad_recs)
+                        proc_log += '\n  End time ' + end_datetime.isoformat('T') + ' Rec time ' + \
+                            rec_time.isoformat('T')
                     else:
                         print 'End record missing field ' + missing_key
                     break
@@ -212,13 +209,13 @@ class Dbi3LogConversion:
                             dat_recs += 1
                             if not header_line:
                                 if csv_file is not None:
-                                    print >>csv_file, 'utc_d,utc_t,alt,lat,lon,head,speed,temp'
+                                    print >> csv_file, 'utc_d,utc_t,alt,lat,lon,head,speed,temp'
                                 header_line = True
                             if csv_file is not None:
-                                print >>csv_file, rec_time.strftime('%Y/%m/%d,%H:%M:%S,') + logvars['ALT'] + \
-                                    ',' + logvars['LAT'] + ',' + logvars['LONG'] + \
-                                    ',' + logvars['COG'] + ',' + logvars['SOG'] + \
-                                    ',' + logvars['AMBT']
+                                print >> csv_file, rec_time.strftime('%Y/%m/%d,%H:%M:%S,') + logvars['ALT'] + \
+                                                   ',' + logvars['LAT'] + ',' + logvars['LONG'] + \
+                                                   ',' + logvars['COG'] + ',' + logvars['SOG'] + \
+                                                   ',' + logvars['AMBT']
                             if debug:
                                 print 'Record ' + rec_time.isoformat('T') + ' ' + logvars['LAT'] + ' ' + logvars['LONG']
 
@@ -272,7 +269,7 @@ class Dbi3LogConversion:
                             if 'TOPT' in self.fields_choice:
                                 kml_t_temp.append(top_temp)
                             if 'DIFF' in self.fields_choice:
-                                kml_diff_t.append(top_temp-amb_temp)
+                                kml_diff_t.append(top_temp - amb_temp)
                             if 'SOG' in self.fields_choice:
                                 sog = float(logvars['SOG'])
                                 sog = M_to_mi(sog * 60 * 60) if spdIsMph else sog
@@ -331,22 +328,23 @@ class Dbi3LogConversion:
             <tr><td><b>End Time </b>{}</td><tr>
             </table>]]>
             DBI3  {}  FWVER {}'''.format(M_to_mi(elapsed_dist) if spdIsMph else elapsed_dist, distStr,
-                                              M_to_ft(min_altitude) if altIsFt else min_altitude, altStr,
-                                              M_to_ft(max_altitude) if altIsFt else max_altitude, altStr,
-                                              M_to_mi(max_sog * 60 * 60) if spdIsMph else max_sog,
-                                              M_to_mi(max_computed_sog * 60 * 60) if spdIsMph else max_computed_sog,
-                                              sogStr,
-                                              M_to_mi(avg_sog * 60 * 60) if spdIsMph else avg_sog, sogStr,
-                                              kml_start.isoformat('T'),
-                                              kml_end.isoformat('T'),
-                                              dbi3_sn, dbi3_fwver)
+                                         M_to_ft(min_altitude) if altIsFt else min_altitude, altStr,
+                                         M_to_ft(max_altitude) if altIsFt else max_altitude, altStr,
+                                         M_to_mi(max_sog * 60 * 60) if spdIsMph else max_sog,
+                                         M_to_mi(max_computed_sog * 60 * 60) if spdIsMph else max_computed_sog,
+                                         sogStr,
+                                         M_to_mi(avg_sog * 60 * 60) if spdIsMph else avg_sog, sogStr,
+                                         kml_start.isoformat('T'),
+                                         kml_end.isoformat('T'),
+                                         dbi3_sn, dbi3_fwver)
 
             #
             # Moving on to KML generation
 
             # Create the KML document
             kml = Kml(name="Tracks", open=1)
-            doc = kml.newdocument(name='GPS device', snippet=Snippet('DBI3LogConverter run ' + datetime.now().isoformat(' ') ))
+            doc = kml.newdocument(name='GPS device',
+                                  snippet=Snippet('DBI3LogConverter run ' + datetime.now().isoformat(' ')))
             # kml timespan is based on the first and last valid data record, not DBI3 log start/end.
             doc.lookat.gxtimespan.begin = kml_start.isoformat('T')
             doc.lookat.gxtimespan.end = kml_end.isoformat('T')
@@ -360,21 +358,21 @@ class Dbi3LogConversion:
             # Create a schema for extended data
             schema = kml.newschema()
             if 'AMBT' in self.fields_choice:
-                schema.newgxsimplearrayfield(name='a_temp', type=Types.float, displayname='Ambient '+tempStr)
+                schema.newgxsimplearrayfield(name='a_temp', type=Types.float, displayname='Ambient ' + tempStr)
             if 'TOPT' in self.fields_choice:
-                schema.newgxsimplearrayfield(name='t_temp', type=Types.float, displayname='Top '+tempStr)
+                schema.newgxsimplearrayfield(name='t_temp', type=Types.float, displayname='Top ' + tempStr)
             if 'DIFF' in self.fields_choice:
-                schema.newgxsimplearrayfield(name='d_temp', type=Types.float, displayname='Diff '+tempStr)
+                schema.newgxsimplearrayfield(name='d_temp', type=Types.float, displayname='Diff ' + tempStr)
             if 'COG' in self.fields_choice:
                 schema.newgxsimplearrayfield(name='cog', type=Types.float, displayname='COG')
             if 'SOG' in self.fields_choice:
-                schema.newgxsimplearrayfield(name='sog', type=Types.float, displayname='SOG '+sogStr)
+                schema.newgxsimplearrayfield(name='sog', type=Types.float, displayname='SOG ' + sogStr)
             if 'ROC' in self.fields_choice:
-                schema.newgxsimplearrayfield(name='roc', type=Types.float, displayname='ROC '+rocStr)
+                schema.newgxsimplearrayfield(name='roc', type=Types.float, displayname='ROC ' + rocStr)
             if 'BATM' in self.fields_choice:
                 schema.newgxsimplearrayfield(name='batm', type=Types.float, displayname='BAT V')
             if 'BRDT' in self.fields_choice:
-                schema.newgxsimplearrayfield(name='brdt', type=Types.float, displayname='BRD '+tempStr)
+                schema.newgxsimplearrayfield(name='brdt', type=Types.float, displayname='BRD ' + tempStr)
 
             # Create a new track in the folder
             trk = fol.newgxtrack(name=kml_start.strftime('%Y%m%d_%H%MZ_Track'),
@@ -419,7 +417,7 @@ class Dbi3LogConversion:
 
 
 def ddmm2d(dm):
-    '''Convert DBI3 ddmm.mmmmi to floating point dd.ddd
+    """Convert DBI3 ddmm.mmmmi to floating point dd.ddd
 
     i - hemisphere indicator NSEW
     m - floating point minutes
@@ -434,56 +432,56 @@ def ddmm2d(dm):
 
     Return:
         floating point degrees equivelent of dm
-    '''
+    """
     hemi = dm[-1:]
     dm = dm[:-1]
     min_dec = dm.find('.')
-    deg = dm[:min_dec-2]
-    minutes = dm[min_dec-2:]
-    latlon = float(deg) + float(minutes)/60.0
+    deg = dm[:min_dec - 2]
+    minutes = dm[min_dec - 2:]
+    latlon = float(deg) + float(minutes) / 60.0
     if hemi == 'W' or hemi == 'S':
         latlon = 0.0 - latlon
     return latlon
 
 
 def C_to_F(tempC):
-    '''Convert Centigrade to Fahrenheit'''
-    return 9.0/5.0 * tempC + 32
+    """Convert Centigrade to Fahrenheit."""
+    return 9.0 / 5.0 * tempC + 32
 
 
 def M_to_ft(meters):
-    '''Convert Meters to feet'''
+    """Convert Meters to feet."""
     return meters * 3.28084
 
 
 def ft_to_M(feet):
-    '''Convert feet to Meters'''
+    """Convert feet to Meters."""
     return feet / 3.28084
 
 
 def M_to_mi(meters):
-    '''Converte Meters to miles'''
+    """Converte Meters to miles."""
     return meters * 0.000621371
 
 
 def distance(origin, destination):
-    '''Give distance between two points in Meters'''
+    """Give distance between two points in Meters."""
     lat1, lon1 = origin
     lat2, lon2 = destination
     radius = 6371.0  # km
 
-    dlat = math.radians(lat2-lat1)
-    dlon = math.radians(lon2-lon1)
-    a = math.sin(dlat/2) * math.sin(dlat/2) + math.cos(math.radians(lat1)) \
-        * math.cos(math.radians(lat2)) * math.sin(dlon/2) * math.sin(dlon/2)
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2) * math.sin(dlat / 2) + math.cos(math.radians(lat1)) \
+        * math.cos(math.radians(lat2)) * math.sin(dlon / 2) * math.sin(dlon / 2)
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     d = radius * c
 
     return d * 1000.0
 
 
 def field_check(req_fields, myvars):
-    '''Check that all required data fields exists
+    """Check that all required data fields exists.
 
     Args:
         req_fields - list of field names
@@ -492,7 +490,7 @@ def field_check(req_fields, myvars):
     Returns:
         None - success, no missing field
         str - the name of the first missing field detected
-    '''
+    """
     for r_key in req_fields:
         if not r_key in myvars:
             return r_key
