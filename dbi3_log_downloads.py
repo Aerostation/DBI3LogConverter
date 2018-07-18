@@ -19,6 +19,8 @@ Bits    Description
 10-5    Minutes (0-59)
 4-0     Seconds/2 (0-29)
 
+The original DigiTool download application would create filename of the form YYYY_MM_DD_HH_MM_SS.log
+I changed the suffix to "_DBI3.log" to flag the source of these log files.
 """
 import os
 import serial
@@ -54,11 +56,9 @@ class DBI3LogDownload:
     serial_fd = None  # initialized to the serial file descriptor for the DBI3 serial comm port
 
     def __init__(self, log_path='/tmp/DBI3', com_port='/dev/ttyDBI3', verbose=False, age_limit=None):
-        if not os.path.isdir(log_path):
-            print "Log file path {} does not exist.".format(log_path)
+        if log_path is None or not os.path.isdir(log_path):
             raise IOError('Log file path {} does not exist.".format(log_path)')
-        if not os.path.exists(com_port):
-            print "Comm port {} does not exist.".format(com_port)
+        if com_port is None or not os.path.exists(com_port):
             raise IOError("Comm port {} does not exist.".format(com_port))
         self.log_path = log_path
         self.com_port = com_port
@@ -150,10 +150,10 @@ class DBI3LogDownload:
 
         # Ensure any pending data is flushed from the DBI3
         while True:
-            rd_cnt = self.serial_fd.in_waiting + 1  # read for 1 more char, timeout if it doesn't arive.
+            rd_cnt = self.serial_fd.in_waiting + 1  # read for 1 extra char, timeout if it doesn't arive.
             res = self.serial_fd.read(rd_cnt)
             if len(res) < rd_cnt:
-                # read was short, we must have timedout waiting, DBI3 finished any output
+                # read was short, we must have timed out waiting, DBI3 finished any output
                 break
 
 
@@ -207,6 +207,9 @@ class DBI3LogDownload:
         while res:
             rs = res.split(' ')
             start_dt = self.__fat_to_datetime(rs[0])
+            # To handle scaling of the list, at this level we can ignore logs that are older that age_limit
+            if self.age_limit is not None and start_dt < self.age_limit:
+                continue
             stop_dt = self.__fat_to_datetime(rs[1])
 
             log_basename = start_dt.strftime('%Y_%m_%d_%H_%M_%S_DBI3')
@@ -269,19 +272,18 @@ class DBI3LogDownload:
             None - if timeout waiting for EOL sequence
             str - stripped line from DBI3
         """
-        output = []
-        eol = list(self.DBI3_EOL)
+        output = ''
         len_eol = len(self.DBI3_EOL)
         while True:
-            ch = self.serial_fd.read(1)
+            ch = self.serial_fd.read(1).decode('ascii')
             if len(ch) == 0:
                 if len(output) != 0:
-                    print "readDbi3Line timeout with-\n[{}]".format(''.join(output))
+                    print "readDbi3Line timeout with-\n[{}]".format(output)
                 return None  # timeout looking for eol
             output += ch
-            if output[-len_eol:] == eol:
+            if output[-len_eol:] == self.DBI3_EOL:
                 break
-        return ''.join(output[0:-len_eol]).strip()  # trim eol off the return
+        return output[0:-len_eol].strip()  # trim eol and white space off the return
 
 
     def get_DBI3_log(self, name):

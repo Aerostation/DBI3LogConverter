@@ -7,11 +7,12 @@ The is currently a default to new files.  I has no selection capability yet.
 import os
 import sys
 import argparse
+import cmd
 import re
 from datetime import datetime, timedelta, tzinfo
 import json
 import collections
-from dbi3_log_conversion import Dbi3LogConversion, ft_to_M
+from dbi3_log_conversion import *
 from dbi3_log_downloads import *
 
 __version__ = '0.1.alpah1'
@@ -33,25 +34,46 @@ def convert_new_logs(log_path, kml_path):
     :param str kml_path: path containing DBI3 kml files
     :return:
     """
-    prog = re.compile('^(\d{4})_(\d\d)_(\d\d)_(\d\d)_(\d\d)_(\d\d)_DBI3.log$')
-    for item in sorted(os.listdir(log_path)):
-        log_filename = os.path.join(log_path, item)
-        if os.path.isfile(log_filename):
-            match = prog.match(item)
-            if match:
-                kml_name = match.expand('\\1\\2\\3_\\4\\5_DBI3')
-                kml_filename = os.path.join(kml_path, kml_name)
-                log_metaname = os.path.join(log_path, '.' + item[0:-4])
-                if not os.path.isfile(kml_filename + '.kml'):
-                    if os.path.isfile(log_metaname):
-                        # meta file to override some conversion settings
-                        with open(log_metaname, 'r') as meta:
-                            data = json.load(meta)
-                        print 'RDT conversion meta = {}'.format(data)
-                    print 'Convert {} to {}'.format(item, kml_name)
+    conv_list = Dbi3KmlList(log_path, kml_path)
+    conv_list.refresh_list()
+    for le in conv_list.conversion_list:
+        print 'RDT name:{}  selected:{}  override:{}'.format(le.log_name,
+                                                             'Y' if le.selected else 'N',
+                                                             le.override)
+        if le.selected:
+            dbi3_obj = Dbi3LogConversion(le.log_filename, verbose)
+        rtn, rtn_str = dbi3_obj.kml_convert(le.kml_filename)
+        if rtn < 0:
+            print 'Convert {} to {} FAILED: {}'.format(le.log_name, le.kml_name, rtn_str)
+        elif rtn > 0 and verbose:
+            print 'Convert {} : {}'.format(le.log_name, rtn_str)
+        elif rtn == 0:
+            print 'Convert {}\n{}'.format(le.log_name, rtn_str)
 
-                    dbi3_obj = Dbi3LogConversion(log_filename, verbose=True)
-                    dbi3_obj.kml_convert(kml_filename)
+    # prog = re.compile('^(\d{4})_(\d\d)_(\d\d)_(\d\d)_(\d\d)_(\d\d)_DBI3.log$')
+    # for item in sorted(os.listdir(log_path)):
+    #     log_filename = os.path.join(log_path, item)
+    #     if os.path.isfile(log_filename):
+    #         match = prog.match(item)
+    #         if match:
+    #             kml_name = match.expand('\\1\\2\\3_\\4\\5_DBI3')
+    #             kml_filename = os.path.join(kml_path, kml_name)
+    #             log_metaname = os.path.join(log_path, '.' + item[0:-4])
+    #             if not os.path.isfile(kml_filename + '.kml'):
+    #                 if os.path.isfile(log_metaname):
+    #                     # meta file to override some conversion settings
+    #                     with open(log_metaname, 'r') as meta:
+    #                         data = json.load(meta)
+    #                     print 'RDT conversion meta = {}'.format(data)
+    #
+    #                 dbi3_obj = Dbi3LogConversion(log_filename, verbose=True)
+    #                 rtn, rtn_str = dbi3_obj.kml_convert(kml_filename)
+    #                 if rtn < 0:
+    #                     print 'Convert {} to {} FAILED: {}'.format(item, kml_name, rtn_str)
+    #                 elif rtn > 0 and verbose:
+    #                     print 'Convert {} : {}'.format(item, rtn_str)
+    #                 elif rtn == 0:
+    #                     print 'Convert {}\n{}'.format(item, rtn_str)
 
 
 def process_dbi():
@@ -79,6 +101,105 @@ def process_dbi():
     convert_new_logs(log_path, kml_path)
 
 
+class Dbi3InteractiveCommandLine(cmd.Cmd):
+    prompt = '(DBI3) '
+
+    def preloop(self):
+        self.do_help('')
+
+    def do_Logs(self, line):
+        """Read and select logs for download/delete."""
+        try:
+            Dbi3LogListCommands().cmdloop()
+        except IOError as e:
+            print 'RDT Can not access DBI3: {}'.format(e.message)
+
+    def do_KML(self, line):
+        """Select and convert logs to KML."""
+        Dbi3KmlConversionCommands().cmdloop()
+
+    def do_EOF(self, line):
+        """Exit"""
+        return True
+
+    def do_exit(self, line):
+        """Exit the application"""
+        return True
+
+
+class Dbi3LogListCommands(cmd.Cmd):
+    prompt = '(DBI3:Logs) '
+    down_load = None
+    log_list = None
+
+    def preloop(self):
+        self.down_load = DBI3LogDownload(log_path, com_port, verbose)
+        self.log_list = self.down_load.get_DBI3_log_list()
+        self.do_help('')
+
+    def do_refresh(self, line):
+        """Re-read the DBI3 log list"""
+        self.log_list = self.down_load.get_DBI3_log_list()
+
+    def do_list(self, line):
+        """Display the DBI3 log list"""
+        for le in self.log_list:
+            print 'log:{}'.format(le.log_name)
+
+    def do_EOF(self, line):
+        """back to Main menu"""
+        return True
+
+    def do_exit(self, line):
+        """exit back to Main menu"""
+        return True
+
+
+class Dbi3KmlConversionCommands(cmd.Cmd):
+    prompt = '(DBI3:KML) '
+    conv_list = None
+
+    def preloop(self):
+        self.conv_list = Dbi3KmlList(log_path, kml_path)
+        self.conv_list.refresh_list()
+        self.do_help('')
+
+    def do_refresh(self, line):
+        """Re-read the DBI3 logs available for KML conversion"""
+        self.conv_list.refresh_list()
+
+    def do_list(self, line):
+        """Display the DBI3 logs available for KML conversion"""
+        only_sel = line == 'selected'
+        for le in self.conv_list.conversion_list:
+            if only_sel and le.selected == False:
+                continue
+            print 'RDT name:{}  selected:{}  override:{}'.format(le.log_name,
+                                                                 'Y' if le.selected else 'N',
+                                                                 le.override)
+
+    def do_convert(self, line):
+        """Convert the currently selected DBI3 logs to KML"""
+        for le in self.conv_list.conversion_list:
+            if le.selected:
+                dbi3_obj = Dbi3LogConversion(le.log_filename, verbose)
+            rtn, rtn_str = dbi3_obj.kml_convert(le.kml_filename)
+            if rtn < 0:
+                print 'Convert {} to {} FAILED: {}'.format(le.log_name, le.kml_name, rtn_str)
+            elif rtn > 0 and verbose:
+                print 'Convert {} : {}'.format(le.log_name, rtn_str)
+            elif rtn == 0:
+                print 'Convert {}\n{}'.format(le.log_name, rtn_str)
+
+    def do_EOF(self, line):
+        """back to Main menu"""
+        return True
+
+    def do_exit(self, line):
+        """exint back to Main menu"""
+        return True
+
+
 if __name__ == "__main__":
     fields_choice = ['ROC', 'TOPT', 'AMBT', 'DIFF', 'SOG', 'COG', 'BATM', 'BRDT']
     fields_default = ['AMBT', 'TOPT', 'DIFF']
@@ -88,6 +209,8 @@ if __name__ == "__main__":
                                      epilog="  Output filename is the input root name with a .kml extension.  The " +
                                             "optional unicsv format can be converted to other useful formats (such as GPX) by " +
                                             "the GPSBabel application")
+    parser.add_argument('--interactive', '-i', action='store_true', default=False,
+                        help='start interactive command line')
     parser.add_argument('--fields', action='store', default=fields_default,
                         type=lambda s: s.split(','),
                         help='Which DBI3 data fields should be included in the KML output, default={}, choices={}, ALL turns on all fields'
@@ -118,6 +241,7 @@ if __name__ == "__main__":
             sys.exit(-1)
         else:
             do_field[fn] = True
+    verbose = args.verbose
 
     # Read the optional config file to override our default settings
     if os.path.isfile(dbi_conf):
@@ -129,7 +253,7 @@ if __name__ == "__main__":
         if 'verbose' in data: verbose = data['verbose']
 
     # Adjust altitude_offset from feet to meters for KML offset
-    args.altitude_offset = ft_to_M(args.altitude_offset)
+    args.altitude_offset = conv_ft_to_M(args.altitude_offset)
 
     # Verify destination path, or construct destination from first log file path
     #    if args.dest_dir is None:
@@ -140,4 +264,8 @@ if __name__ == "__main__":
     #    else:
     #        dest_dir = args.dest_dir
 
-    process_dbi()
+    print 'RDT verbose={} {}'.format(verbose, args.verbose)
+    if args.interactive:
+        Dbi3InteractiveCommandLine().cmdloop()
+    else:
+        process_dbi()

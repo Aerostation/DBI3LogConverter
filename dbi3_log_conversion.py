@@ -9,6 +9,8 @@ from datetime import datetime
 from datetime import timedelta
 from simplekml import Kml, Snippet, Types
 import math
+import collections
+import re
 
 two_seconds = timedelta(seconds=2)  # time increment between data records
 kml_line_color = 'ff0000ff'  # hex aabbggrr
@@ -19,6 +21,8 @@ data_fields = ['ALT', 'ROC', 'AMBT', 'GPSS', 'SOG', 'COG', 'LONG', 'LAT', 'TOPTS
 end_fields = ['DATE', 'TIME']
 def_fields = ['ROC', 'TOPT', 'AMBT', 'DIFF', 'SOG', 'COG', 'BATM', 'BRDT']
 
+# Define a named tuple for DBI3 log entry rows
+ConversionList = collections.namedtuple('ConversionList', 'log_name log_filename kml_name kml_filename selected meta_name override')
 
 class Dbi3LogConversion:
     config_attr = ["altitudemode",
@@ -70,7 +74,7 @@ class Dbi3LogConversion:
             # This log file has persisted meta data, get the config options
             with open(self.log_meta, 'r') as meta:
                 data = json.load(meta)
-            print 'RDT override conversion with meta {}'.format(data)
+            if verbose: print 'RDT override conversion with meta {}'.format(data)
             for fld in self.config_attr:
                 if fld in data: setattr(self, fld, data[fld])
 
@@ -80,8 +84,9 @@ class Dbi3LogConversion:
         Args:
             base_name: Base path and filename for output - add extension
 
-        Returns:
-            null
+        Returns: int, str
+            int - 0=success, 1=warning, -1=error
+            str - Success info or warning/error message
         """
         # TODO csv creation support has fallen out of this code.  Maybe it should be removed!
 
@@ -165,7 +170,7 @@ class Dbi3LogConversion:
                     log_datetime = None
 
                 if log_state == 1:  # Expecting the start line from the log file
-                    missing_key = field_check(start_fields, logvars)
+                    missing_key = self.__field_check(start_fields, logvars)
                     if missing_key is not None:
                         print 'Start record missing field ' + missing_key
                         break
@@ -178,7 +183,7 @@ class Dbi3LogConversion:
                 elif log_state > 1 and log_datetime is not None:
                     # START record was processed, the next record with a DATE is the END record
                     end_datetime = log_datetime
-                    missing_key = field_check(end_fields, logvars)
+                    missing_key = self.__field_check(end_fields, logvars)
                     if missing_key is None:
                         log_state = 3
                         proc_log += '\n  Total records={}  data records={}  bad records={}'.format(tot_recs,
@@ -190,7 +195,7 @@ class Dbi3LogConversion:
                     break
                 else:
                     # This should be a DATA record
-                    missing_key = field_check(data_fields, logvars)
+                    missing_key = self.__field_check(data_fields, logvars)
                     if missing_key is None:
                         if logvars['GPSS'] == '0':
                             ####
@@ -220,8 +225,8 @@ class Dbi3LogConversion:
                                 print 'Record ' + rec_time.isoformat('T') + ' ' + logvars['LAT'] + ' ' + logvars['LONG']
 
                             # calculate and accumulate KML data
-                            kml_lat = ddmm2d(logvars['LAT'])
-                            kml_lon = ddmm2d(logvars['LONG'])
+                            kml_lat = self.__ddmm2d(logvars['LAT'])
+                            kml_lon = self.__ddmm2d(logvars['LONG'])
                             # calculate min/max lat and lon so we can construct a display bounding box
                             if kml_lat < min_lat:
                                 min_lat = kml_lat
@@ -241,7 +246,7 @@ class Dbi3LogConversion:
                             # For trip stats, sum the total distance traveled, max speed, min/max altitude
                             #
                             if last_lat is not None:
-                                point_dist = distance((last_lat, last_lon), (kml_lat, kml_lon))
+                                point_dist = calc_distance((last_lat, last_lon), (kml_lat, kml_lon))
                                 elapsed_dist += point_dist
                                 computed_sog = point_dist / 2.0  # fixed time between point is 2 seconds
                                 if max_computed_sog is None or computed_sog > max_computed_sog:
@@ -259,9 +264,9 @@ class Dbi3LogConversion:
                             #
                             # Additional data fields
                             #
-                            amb_temp = C_to_F(float(logvars['AMBT'])) if tempIsF else float(logvars['AMBT'])
+                            amb_temp = conv_C_to_F(float(logvars['AMBT'])) if tempIsF else float(logvars['AMBT'])
                             if logvars['TOPTS'] == '1':
-                                top_temp = C_to_F(float(logvars['TOPT'])) if tempIsF else float(logvars['TOPT'])
+                                top_temp = conv_C_to_F(float(logvars['TOPT'])) if tempIsF else float(logvars['TOPT'])
                             else:
                                 top_temp = min_toptF if tempIsF else min_toptC
                             if 'AMBT' in self.fields_choice:
@@ -272,19 +277,19 @@ class Dbi3LogConversion:
                                 kml_diff_t.append(top_temp - amb_temp)
                             if 'SOG' in self.fields_choice:
                                 sog = float(logvars['SOG'])
-                                sog = M_to_mi(sog * 60 * 60) if spdIsMph else sog
+                                sog = conv_M_to_mi(sog * 60 * 60) if spdIsMph else sog
                                 kml_sog.append(sog)
                             if 'COG' in self.fields_choice:
                                 kml_cog.append(float(logvars['COG']))
                             if 'ROC' in self.fields_choice:
                                 roc = float(logvars['ROC'])
-                                roc = M_to_ft(roc * 60) if varioIsFpm else roc
+                                roc = conv_M_to_ft(roc * 60) if varioIsFpm else roc
                                 kml_roc.append(roc)
                             if 'BATM' in self.fields_choice:
                                 kml_batm.append(float(logvars['BATM']))
                             if 'BRDT' in self.fields_choice:
                                 brdt = float(logvars['BRDT'])
-                                brdt = C_to_F(brdt) if tempIsF else brdt
+                                brdt = conv_C_to_F(brdt) if tempIsF else brdt
                                 kml_brdt.append(brdt)
                             # Finished a valid data record, capture the first time as kml_start,
                             # update kml_end on each valid data record so we have the last time.
@@ -298,13 +303,9 @@ class Dbi3LogConversion:
                     rec_time += two_seconds
 
             if dat_recs == 0:
-                print '    No GPS data records, skip KML file generations'
-                return
+                return 1, 'No GPS data records, skip KML file generations'
             elif log_state != 3:
-                print '  No END record, skip KML file generation'
-                return
-            else:
-                print proc_log
+                return  -1, 'No END record, skip KML file generation'
 
             # Establish unit of measure strings depending on Metric vs English measures
             tempStr = 'F' if tempIsF else 'C'
@@ -327,13 +328,13 @@ class Dbi3LogConversion:
             <tr><td><b>Start Time </b>{}</td><tr>
             <tr><td><b>End Time </b>{}</td><tr>
             </table>]]>
-            DBI3  {}  FWVER {}'''.format(M_to_mi(elapsed_dist) if spdIsMph else elapsed_dist, distStr,
-                                         M_to_ft(min_altitude) if altIsFt else min_altitude, altStr,
-                                         M_to_ft(max_altitude) if altIsFt else max_altitude, altStr,
-                                         M_to_mi(max_sog * 60 * 60) if spdIsMph else max_sog,
-                                         M_to_mi(max_computed_sog * 60 * 60) if spdIsMph else max_computed_sog,
+            DBI3  {}  FWVER {}'''.format(conv_M_to_mi(elapsed_dist) if spdIsMph else elapsed_dist, distStr,
+                                         conv_M_to_ft(min_altitude) if altIsFt else min_altitude, altStr,
+                                         conv_M_to_ft(max_altitude) if altIsFt else max_altitude, altStr,
+                                         conv_M_to_mi(max_sog * 60 * 60) if spdIsMph else max_sog,
+                                         conv_M_to_mi(max_computed_sog * 60 * 60) if spdIsMph else max_computed_sog,
                                          sogStr,
-                                         M_to_mi(avg_sog * 60 * 60) if spdIsMph else avg_sog, sogStr,
+                                         conv_M_to_mi(avg_sog * 60 * 60) if spdIsMph else avg_sog, sogStr,
                                          kml_start.isoformat('T'),
                                          kml_end.isoformat('T'),
                                          dbi3_sn, dbi3_fwver)
@@ -350,7 +351,7 @@ class Dbi3LogConversion:
             doc.lookat.gxtimespan.end = kml_end.isoformat('T')
             doc.lookat.longitude = max_lon - ((max_lon - min_lon) / 2)
             doc.lookat.latitude = max_lat - ((max_lat - min_lat) / 2)
-            doc.lookat.range = distance((min_lat, min_lon), (max_lat, max_lon)) * 1.5
+            doc.lookat.range = calc_distance((min_lat, min_lon), (max_lat, max_lon)) * 1.5
 
             # Create a folder
             fol = doc.newfolder(name='Tracks')
@@ -415,57 +416,81 @@ class Dbi3LogConversion:
             # Save the kml to file
             kml.save(base_name + ".kml")
 
+            return 0, proc_log
 
-def ddmm2d(dm):
-    """Convert DBI3 ddmm.mmmmi to floating point dd.ddd
+    @staticmethod
+    def __field_check(req_fields, myvars):
+        """Check that all required data fields exists.
 
-    i - hemisphere indicator NSEW
-    m - floating point minutes
-    d - integer degrees
+        Args:
+            req_fields - list of field names
+            myvars - list of parsed NAME=VALUE parsed fields
 
-    The degree field can be 1-3 digits, minutes integer is always 2 so
-    this conversion works for latitude or longitude.
-    i = W or S returns negative degrees.
+        Returns:
+            None - success, no missing field
+            str - the name of the first missing field detected
+        """
+        for r_key in req_fields:
+            if not r_key in myvars:
+                return r_key
+        return None
 
-    Args:
-        dm - string of the [d[d]]dmm.mmmmi
+    @staticmethod
+    def __ddmm2d(dm):
+        """Convert DBI3 ddmm.mmmmi to floating point dd.ddd
 
-    Return:
-        floating point degrees equivelent of dm
-    """
-    hemi = dm[-1:]
-    dm = dm[:-1]
-    min_dec = dm.find('.')
-    deg = dm[:min_dec - 2]
-    minutes = dm[min_dec - 2:]
-    latlon = float(deg) + float(minutes) / 60.0
-    if hemi == 'W' or hemi == 'S':
-        latlon = 0.0 - latlon
-    return latlon
+        i - hemisphere indicator NSEW
+        m - floating point minutes
+        d - integer degrees
+
+        The degree field can be 1-3 digits, minutes integer is always 2 so
+        this conversion works for latitude or longitude.
+        i = W or S returns negative degrees.
+
+        Args:
+            dm - string of the [d[d]]dmm.mmmmi
+
+        Return:
+            floating point degrees equivelent of dm
+        """
+        hemi = dm[-1:]
+        dm = dm[:-1]
+        min_dec = dm.find('.')
+        deg = dm[:min_dec - 2]
+        minutes = dm[min_dec - 2:]
+        latlon = float(deg) + float(minutes) / 60.0
+        if hemi == 'W' or hemi == 'S':
+            latlon = 0.0 - latlon
+        return latlon
 
 
-def C_to_F(tempC):
+def conv_C_to_F(tempC):
     """Convert Centigrade to Fahrenheit."""
     return 9.0 / 5.0 * tempC + 32
 
 
-def M_to_ft(meters):
+def conv_M_to_ft(meters):
     """Convert Meters to feet."""
     return meters * 3.28084
 
 
-def ft_to_M(feet):
+def conv_ft_to_M(feet):
     """Convert feet to Meters."""
     return feet / 3.28084
 
 
-def M_to_mi(meters):
-    """Converte Meters to miles."""
+def conv_M_to_mi(meters):
+    """Convert Meters to miles."""
     return meters * 0.000621371
 
 
-def distance(origin, destination):
-    """Give distance between two points in Meters."""
+def calc_distance(origin, destination):
+    """Give distance between two points in Meters.
+
+    :param list,floats origin: decimal lat,lon of the first point
+    :param list,floats destination: decimal lat,lon of the second point
+    :return float: Distance in Meters
+    """
     lat1, lon1 = origin
     lat2, lon2 = destination
     radius = 6371.0  # km
@@ -480,18 +505,69 @@ def distance(origin, destination):
     return d * 1000.0
 
 
-def field_check(req_fields, myvars):
-    """Check that all required data fields exists.
+class Dbi3KmlList:
+    """Manipulate the list for DBI3 log to KML conversions.
 
-    Args:
-        req_fields - list of field names
-        myvars - list of parsed NAME=VALUE parsed fields
+    Constructs a list of available log conversion, defaults the select to new files only.
 
-    Returns:
-        None - success, no missing field
-        str - the name of the first missing field detected
+    Allows editing of the selections.  The list can then be used to drive multiple conversions.
     """
-    for r_key in req_fields:
-        if not r_key in myvars:
-            return r_key
-    return None
+
+    def __init__(self, log_path, kml_path, age_limit=None):
+        """
+
+        :param str log_path:  File system path to the DBI3 log files
+        :param str kml_path:  File system path to the DBI3 KML files
+        :param datetime age_limit: optional age limit, log files older are not considered for conversion
+        """
+        self.log_path = log_path
+        self.kml_path = kml_path
+        self.age_limit = age_limit
+        self.conversion_list = []
+
+
+    def refresh_list(self):
+        """Builds list of available LOG files and selects those without a corresponding KML conversion.
+
+        For each DBI3 log file, if the corresponding kml file does not exists,
+        run the conversion.
+
+        :return list,ConversionList:
+        """
+        self.conversion_list = []
+        age_limit_name = None
+        if self.age_limit is not None:
+            age_limit_name = age_limit.strftime('%Y_%m_%d_%H_%M_%S_DBI3.log')
+        prog = re.compile('^(\d{4})_(\d\d)_(\d\d)_(\d\d)_(\d\d)_(\d\d)_DBI3.log$')
+        for item in sorted(os.listdir(self.log_path)):
+            selected = False
+            data = None
+            metaname = None
+            log_filename = os.path.join(self.log_path, item)
+            if os.path.isfile(log_filename):
+                match = prog.match(item)
+                if match:
+                    if age_limit_name is not None and item < age_limit_name:
+                        # item is too old, ignore it.
+                        continue
+                    kml_name = match.expand('\\1\\2\\3_\\4\\5_DBI3')
+                    kml_filename = os.path.join(self.kml_path, kml_name)
+                    log_metaname = os.path.join(self.log_path, '.' + item[0:-4])
+                    if not os.path.isfile(kml_filename + '.kml'):
+                        selected = True
+                    if os.path.isfile(log_metaname):
+                        metaname = log_metaname
+                        # meta file to override some conversion settings
+                        with open(log_metaname, 'r') as meta:
+                            data = json.load(meta)
+                        print 'RDT conversion meta = {}'.format(data)
+                    self.conversion_list.append(ConversionList(log_name=item,
+                                                               log_filename=log_filename,
+                                                               kml_name=kml_name,
+                                                               kml_filename=kml_filename,
+                                                               selected=selected,
+                                                               meta_name=metaname,
+                                                               override=data))
+
+        return self.conversion_list
+

@@ -6,7 +6,7 @@ import sys
 import argparse
 from datetime import datetime
 from datetime import timedelta
-from dbi3_log_conversion import Dbi3LogConversion, ft_to_M
+from dbi3_log_conversion import Dbi3LogConversion, conv_ft_to_M
 
 __version__ = '0.4.alpah1'
 
@@ -61,7 +61,7 @@ if __name__ == '__main__':
             do_field[fn] = True
 
     # Adjust altitude_offset from feet to meters for KML offset
-    args.altitude_offset = ft_to_M(args.altitude_offset)
+    args.altitude_offset = conv_ft_to_M(args.altitude_offset)
 
     # Verify destination path, or construct destination from first log file path
     if args.dest_dir is None:
