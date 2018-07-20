@@ -31,7 +31,7 @@ import collections
 __version__ = '0.1.alpah1'
 
 # Define a named tuple for DBI3 log entry rows
-LogList = collections.namedtuple('LogList', 'name_start name_end start_dt end_dt log_name download meta_name override')
+LogList = collections.namedtuple('LogList', 'name_start name_end start_dt end_dt log_name new_file meta_name override')
 
 
 class DBI3LogDownload:
@@ -53,9 +53,10 @@ class DBI3LogDownload:
     com_port = None
     age_limit = None  # to reduce clutter, we can set an optional age limit, older DBI3 logs are ignored
     verbose = None
+    debug = False
     serial_fd = None  # initialized to the serial file descriptor for the DBI3 serial comm port
 
-    def __init__(self, log_path='/tmp/DBI3', com_port='/dev/ttyDBI3', verbose=False, age_limit=None):
+    def __init__(self, log_path='/tmp/DBI3', com_port='/dev/ttyDBI3', verbose=False, age_limit=None, valid_only=False):
         if log_path is None or not os.path.isdir(log_path):
             raise IOError('Log file path {} does not exist.".format(log_path)')
         if com_port is None or not os.path.exists(com_port):
@@ -64,6 +65,20 @@ class DBI3LogDownload:
         self.com_port = com_port
         self.verbose = verbose
         self.age_limit = age_limit
+        self.valid_only = valid_only
+        # The determine "new" logs we need to know the latest log in log_path
+        dt = None
+        for item in sorted(os.listdir(self.log_path), reverse=True):
+            if not os.path.isfile(os.path.join(self.log_path, item)):
+                continue
+            try:
+                dt = datetime.strptime(item, "%Y_%m_%d_%H_%M_%S_DBI3.log")
+            except ValueError as e:
+                if self.debug:
+                    print('Parse error of {}:{}'.format(item, e.message))
+            if dt is not None:
+                self.new_limit = dt.replace(tzinfo=self.utc) + timedelta(seconds=1)  # make new_limit timezone aware
+                break
 
     def __radix26_to_int(self, rad26):
         """ DBI3 log names are radix 26 encoded string.  Seven upper case characters
@@ -129,7 +144,6 @@ class DBI3LogDownload:
         year = (fat & 0x7F) + 1980
         return datetime(year, month, day, hour, minute, second, tzinfo=self.utc)
 
-
     def __initialize_dbi3_serial_port(self):
         """Initialize the comm port for DBI3 communications.
 
@@ -156,7 +170,6 @@ class DBI3LogDownload:
                 # read was short, we must have timed out waiting, DBI3 finished any output
                 break
 
-
     def __do_DBI3_cmd(self, cmd, allowed_resp):
         """
         Send a command to the DBI3, read and compare the response to the allowed list.
@@ -177,8 +190,7 @@ class DBI3LogDownload:
             raise IOError('cmd:{} expect:{} got:{}'.format(cmd, allowed_resp, res))
         return res
 
-
-    def get_DBI3_log_list(self):
+    def get_DBI3_log_list(self, new_logs_only=False):
         """Retrieve the sorted DBI3 log list.
 
         Log names consist of 2 strings containing the log start/end times in DOS FAT
@@ -201,16 +213,28 @@ class DBI3LogDownload:
 
         self.serial_fd.write('fs list\r')
 
+        dt_limit = None
+        if new_logs_only and self.new_limit is not None:
+            dt_limit = self.new_limit
+        elif self.age_limit is not None:
+            dt_limit = self.age_limit
         log_list = []
 
-        res = self.__readDbi3Line()
-        while res:
+        print 'RDT dt_limit:{} valid_only:{}'.format(dt_limit, self.valid_only)
+        for res in iter(self.__readDbi3Line, None):
+            print 'RDT logs {}'.format(res)
             rs = res.split(' ')
             start_dt = self.__fat_to_datetime(rs[0])
             # To handle scaling of the list, at this level we can ignore logs that are older that age_limit
-            if self.age_limit is not None and start_dt < self.age_limit:
+            if dt_limit is not None and start_dt < dt_limit:
                 continue
             stop_dt = self.__fat_to_datetime(rs[1])
+
+            if self.valid_only:
+                if stop_dt - start_dt < timedelta(seconds=3):
+                    if self.verbose:
+                        print 'IGNORE LOG {} due to short duration'.format(rs[0])
+                    continue
 
             log_basename = start_dt.strftime('%Y_%m_%d_%H_%M_%S_DBI3')
             log_name = log_basename + '.log'
@@ -231,7 +255,6 @@ class DBI3LogDownload:
                     metadata = json.load(meta)
 
             log_list.append(LogList(rs[0], rs[1], start_dt, stop_dt, log_name, download, log_metaname, metadata))
-            res = self.__readDbi3Line()  # Try for another line
 
         log_list.sort()
         print 'log_list length {}'.format(len(log_list))
@@ -243,11 +266,10 @@ class DBI3LogDownload:
                     fileExists = True
                 else:
                     fileExists = False
-                print 'LOG-{} {}  duration {}  download:{} override:{}'.format('   ' if fileExists else 'new', rs[2],
-                                                                               rs[3] - rs[2], rs.download, rs.override)
+                print 'LOG-{} {}  duration {}  new_file:{} override:{}'.format('   ' if fileExists else 'new', rs[2],
+                                                                               rs[3] - rs[2], rs.new_file, rs.override)
 
         return log_list
-
 
     def delete_DBI3_log(self, name):
         print 'Will delete {}'.format(name)
@@ -285,7 +307,6 @@ class DBI3LogDownload:
                 break
         return output[0:-len_eol].strip()  # trim eol and white space off the return
 
-
     def get_DBI3_log(self, name):
         """Down load the specified log from the DBI3 serial connection.
 
@@ -318,7 +339,6 @@ class DBI3LogDownload:
                 res = self.__readDbi3Line()
         print 'LOG download-{} {} ({})'.format(name, log_name, line_count)
 
-
     def download_selected_logs(self, log_list):
         """Access DBI3 via the serial port and download new log files.
 
@@ -334,7 +354,7 @@ class DBI3LogDownload:
 
         # Download all logs that we don't already have
         for rs in log_list:
-            if rs.download:
+            if rs.new_file:
                 self.get_DBI3_log(rs.name_start)
 
         # Clear any ongoing operations before we close the serial port
