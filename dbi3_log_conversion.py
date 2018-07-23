@@ -2,6 +2,7 @@
 # vim: set sw=4 st=4 ai expandtab:
 """Program to convert DBI3 log files to KML"""
 
+# TODO: Add green pushpin at the start GPS, red pushpin at the end GPS
 import os
 import sys
 import json
@@ -14,6 +15,8 @@ import re
 
 two_seconds = timedelta(seconds=2)  # time increment between data records
 kml_line_color = 'ff0000ff'  # hex aabbggrr
+kml_start_color = 'ff00ff00'
+kml_end_color = 'ff0000ff'
 
 # Required start record fields - to validate log record content
 start_fields = ['FWVER', 'SN', 'DATE', 'TIME']
@@ -128,6 +131,11 @@ class Dbi3LogConversion:
         max_computed_sog = None
         min_altitude = None  # Max ALT in Meters
         max_altitude = None  # Min ALT in Meters
+
+        kml_start_lat = None
+        kml_start_lon = None
+        kml_end_lat = None
+        kml_end_lon = None
 
         # initialize data lists to construct the KML output
         kml_start = None  # datetime of the first GPS data line
@@ -296,12 +304,16 @@ class Dbi3LogConversion:
                             # update kml_end on each valid data record so we have the last time.
                             if kml_start is None:
                                 kml_start = rec_time
+                                kml_start_lat = kml_lat
+                                kml_start_lon = kml_lon
                             kml_end = rec_time
                     else:
                         print 'Data record missing field ' + missing_key
                         bad_recs += 1
                     # Do we increment the time before or after the data records?
                     rec_time += two_seconds
+            kml_end_lat = last_lat
+            kml_end_lon = last_lon
 
             if dat_recs == 0:
                 return 1, 'No GPS data records, skip KML file generations'
@@ -388,6 +400,13 @@ class Dbi3LogConversion:
             # Add all the information to the track
             trk.newwhen(kml_when)  # Each item in the give nlist will become a new <when> tag
             trk.newgxcoord(kml_coord)
+            pnt = fol.newpoint(name='Start', coords=[(kml_start_lon, kml_start_lat)])
+            pnt.style.labelstyle.color = kml_start_color
+            pnt.style.iconstyle.icon.href = 'http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png'
+            pnt = fol.newpoint(name='Finish', coords=[(kml_end_lon, kml_end_lat)])
+            pnt.style.labelstyle.color = kml_end_color
+            pnt.style.iconstyle.icon.href = 'http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png'
+
             if 'AMBT' in self.fields_choice:
                 trk.extendeddata.schemadata.newgxsimplearraydata('a_temp', kml_a_temp)
             if 'TOPT' in self.fields_choice:
