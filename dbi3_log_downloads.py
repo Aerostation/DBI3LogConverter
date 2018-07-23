@@ -52,6 +52,7 @@ class DBI3LogDownload:
     log_path = None
     com_port = None
     age_limit = None  # to reduce clutter, we can set an optional age limit, older DBI3 logs are ignored
+    new_limit = None
     verbose = None
     debug = False
     serial_fd = None  # initialized to the serial file descriptor for the DBI3 serial comm port

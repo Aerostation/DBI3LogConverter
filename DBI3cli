@@ -18,6 +18,7 @@ from dbi3_log_downloads import *
 __version__ = '0.1.alpah1'
 
 dbi_conf = os.path.join(os.path.expanduser('~'), '.DBI3config')
+print 'CONF file:{}'.format(dbi_conf)
 log_path = '/tmp/DBI3'
 kml_path = '/tmp/DBI3/kml'
 com_port = '/dev/ttyDBI3'
@@ -42,7 +43,7 @@ def convert_new_logs(log_path, kml_path):
                                                              'Y' if le.new_file else 'N',
                                                              le.override)
         if le.new_file:
-            dbi3_obj = Dbi3LogConversion(le.log_filename, verbose)
+            dbi3_obj = Dbi3LogConversion(le.log_filename, verbose=verbose)
         rtn, rtn_str = dbi3_obj.kml_convert(le.kml_filename)
         if rtn < 0:
             print 'Convert {} to {} FAILED: {}'.format(le.log_name, le.kml_name, rtn_str)
@@ -200,42 +201,47 @@ class Dbi3LogListCommands(cmd.Cmd):
 
     def do_select(self, line):
         """Select/deselect LOG list rows for KML conversion. [all, none, new, #, #-#, -#]"""
-        line = line.lower()
-        sel = None
-        sel_new = False
-        if 'all' in line: sel = True
-        elif 'none' in line: sel = False
-        elif 'new' in line: sel_new = True
-        if sel is not None or sel_new:
-            for le in self.my_list:
-                if sel_new == False:
-                    le[0] = sel
-                else:
-                    le[0] = le[1].new_file
-            return
-        # not a full sweep so check for specific numbers
-        # Leading '-' indicates this is a deselect
-        # TODO collect all indicies before changing anything
-        if line[0] == '-':
-            line = line[1:]
-            sel = False
-        else:
-            sel = True
-        for sel_spec in line.split(','):
-            sel_spec = sel_spec.strip()
-            rng_spec = sel_spec.split('-')
-            if rng_spec[0] == '':
-                print "ERROR: bad range specification {}".format(sel_spec)
-            beg_idx = int(rng_spec[0])
-            if len(rng_spec) == 1:
-                end_idx = beg_idx + 1
-            else:
-                end_idx = int(rng_spec[1]) + 1
-            if beg_idx < 0 or beg_idx >= len(self.my_list) or end_idx <= beg_idx or end_idx > len(self.my_list):
-                print 'ERROR: valid select index range is 0 through {}'.format(len(self.my_list)-1)
-                return
-            for i in range(beg_idx, end_idx):
-                self.my_list[i][0] = sel
+        process_select_range(line, self.my_list)
+        # ln = line.lower()
+        # for line in ln.split(','):
+        #     line = line.strip()
+        #     print 'RDT line {}'.format(line)
+        #     sel = None
+        #     sel_new = False
+        #     if 'all' in line: sel = True
+        #     elif 'none' in line: sel = False
+        #     elif 'new' in line: sel_new = True
+        #     if sel is not None or sel_new:
+        #         for le in self.my_list:
+        #             if sel_new == False:
+        #                 le[0] = sel
+        #             else:
+        #                 le[0] = le[1].new_file
+        #         continue
+        #     # not a full sweep so check for specific numbers
+        #     # Leading '-' indicates this is a deselect
+        #     # TODO collect all indicies before changing anything
+        #     if line[0] == '-':
+        #         line = line[1:]
+        #         sel = False
+        #     else:
+        #         sel = True
+        #     sel_spec = line
+        #     sel_spec = sel_spec.strip()
+        #     rng_spec = sel_spec.split('-')
+        #     print 'RDT rng_spec {}'.format(rng_spec)
+        #     if rng_spec[0] == '':
+        #         print "ERROR: bad range specification {}".format(sel_spec)
+        #     beg_idx = int(rng_spec[0])
+        #     if len(rng_spec) == 1:
+        #         end_idx = beg_idx + 1
+        #     else:
+        #         end_idx = int(rng_spec[1]) + 1
+        #     if beg_idx < 0 or beg_idx >= len(self.my_list) or end_idx <= beg_idx or end_idx > len(self.my_list):
+        #         print 'ERROR: valid select index range is 0 through {}'.format(len(self.my_list)-1)
+        #         return
+        #     for i in range(beg_idx, end_idx):
+        #         self.my_list[i][0] = sel
 
     def help_select(self):
         print 'Select/deselect LOG list rows for KML conversion.'
@@ -252,7 +258,7 @@ class Dbi3LogListCommands(cmd.Cmd):
         """Download the selected files"""
         for le in self.my_list:
             if le[0]:  # list row is marked as selected
-                self.down_load(le[1].name_start)
+                self.down_load.get_DBI3_log(le[1].name_start)
 
     def do_delete(self, line):
         """Delete the selected log files on the DBI3"""
@@ -279,7 +285,7 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
         self.conv_list.refresh_list
         self.my_list = []
         for le in self.conv_list.conversion_list:
-            dbi3_obj = Dbi3LogConversion(le.log_filename, verbose)
+            dbi3_obj = Dbi3LogConversion(le.log_filename, verbose=verbose)
             log_stats = dbi3_obj.kml_summary()
             self.my_list.append([le.new_file, le, log_stats])
         # print "RDT {}".format(self.my_list)
@@ -303,66 +309,67 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
 
     def do_select(self, line):
         """Select/deselect LOG list rows for KML conversion. [all, none, new, #, #-#, -#]"""
-        line = line.lower()
-        sel = None
-        sel_new = False
-        if 'all' in line: sel = True
-        elif 'none' in line: sel = False
-        elif 'new' in line: sel_new = True
-        if sel is not None or sel_new:
-            for le in self.my_list:
-                if sel_new == False:
-                    le[0] = sel
-                else:
-                    le[0] = le[1].new_file
-            return
-        # not a full sweep so check for specific numbers
-        # Leading '-' indicates this is a deselect
-        # TODO collect all indicies before changing anything
-        if line[0] == '-':
-            line = line[1:]
-            sel = False
-        else:
-            sel = True
-        for sel_spec in line.split(','):
-            sel_spec = sel_spec.strip()
-            rng_spec = sel_spec.split('-')
-            if rng_spec[0] == '':
-                print "ERROR: bad range specification {}".format(sel_spec)
-            beg_idx = int(rng_spec[0])
-            if len(rng_spec) == 1:
-                end_idx = beg_idx + 1
-            else:
-                end_idx = int(rng_spec[1]) + 1
-            if beg_idx < 0 or beg_idx >= len(self.my_list) or end_idx <= beg_idx or end_idx > len(self.my_list):
-                print 'ERROR: valid select index range is 0 through {}'.format(len(self.my_list)-1)
-                return
-            for i in range(beg_idx, end_idx):
-                self.my_list[i][0] = sel
+        process_select_range(line, self.my_list)
+        # line = line.lower()
+        # sel = None
+        # sel_new = False
+        # if 'all' in line: sel = True
+        # elif 'none' in line: sel = False
+        # elif 'new' in line: sel_new = True
+        # if sel is not None or sel_new:
+        #     for le in self.my_list:
+        #         if sel_new == False:
+        #             le[0] = sel
+        #         else:
+        #             le[0] = le[1].new_file
+        #     return
+        # # not a full sweep so check for specific numbers
+        # # Leading '-' indicates this is a deselect
+        # # TODO collect all indicies before changing anything
+        # if line[0] == '-':
+        #     line = line[1:]
+        #     sel = False
+        # else:
+        #     sel = True
+        # for sel_spec in line.split(','):
+        #     sel_spec = sel_spec.strip()
+        #     rng_spec = sel_spec.split('-')
+        #     if rng_spec[0] == '':
+        #         print "ERROR: bad range specification {}".format(sel_spec)
+        #     beg_idx = int(rng_spec[0])
+        #     if len(rng_spec) == 1:
+        #         end_idx = beg_idx + 1
+        #     else:
+        #         end_idx = int(rng_spec[1]) + 1
+        #     if beg_idx < 0 or beg_idx >= len(self.my_list) or end_idx <= beg_idx or end_idx > len(self.my_list):
+        #         print 'ERROR: valid select index range is 0 through {}'.format(len(self.my_list)-1)
+        #         return
+        #     for i in range(beg_idx, end_idx):
+        #         self.my_list[i][0] = sel
 
     def help_select(self):
         print 'Select/deselect LOG list rows for KML conversion.'
-        print 'Usage: select all|none|new|[-]#|#-#[,#|#-#...]'
+        print 'Usage: select all|none|new|[-]#|[-]#-#,[...]'
         print '  all - select all rows'
         print '  none - deselect all rows'
         print '  new - select only new rows, deselect all others'
         print '  #    - select a specific row'
         print '  #-#  - select a range of rows, inclusive'
-        print '  Multiple numbers,ranges can be specified, seperated by commas'
-        print '  If you prefix all number,ranges with "-" it becomes a deselect'
+        print '  Multiple selections can be specified, seperated by commas'
+        print '  If you prefix a number,ranges with "-" it becomes a deselect'
 
     def do_convert(self, line):
         """Convert the currently selected DBI3 logs to KML"""
-        for sel, le in self.my_list:
-            if sel:
-                dbi3_obj = Dbi3LogConversion(le.log_filename, verbose)
-            rtn, rtn_str = dbi3_obj.kml_convert(le.kml_filename)
+        for le in self.my_list:
+            if le[0]:
+                dbi3_obj = Dbi3LogConversion(le[1].log_filename, verbose=verbose)
+            rtn, rtn_str = dbi3_obj.kml_convert(le[1].kml_filename)
             if rtn < 0:
-                print 'Convert {} to {} FAILED: {}'.format(le.log_name, le.kml_name, rtn_str)
+                print 'Convert {} to {} FAILED: {}'.format(le[1].log_name, le[1].kml_name, rtn_str)
             elif rtn > 0 and verbose:
-                print 'Convert {} : {}'.format(le.log_name, rtn_str)
+                print 'Convert {} : {}'.format(le[1].log_name, rtn_str)
             elif rtn == 0:
-                print 'Convert {}\n{}'.format(le.log_name, rtn_str)
+                print 'Convert {}\n{}'.format(le[1].log_name, rtn_str)
 
     def do_EOF(self, line):
         """back to Main menu"""
@@ -371,6 +378,59 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
     def do_exit(self, line):
         """exint back to Main menu"""
         return True
+
+
+def process_select_range(line, my_list):
+    """Given selection string, process the list to update the select flag
+
+    my_list is a list of lists.  It ccntains the T/F select flag and the dictionary of the actual data
+    row.  One of the row elements must be named "new_file" to be used for "new" selection.
+    
+    :param str line: String containing one or more comma separated selection specs
+    :param list my_list: list of rows, each row is a list of two elements, select=T/F and dictionary
+    :result: my_list select field is altered as specified
+    """
+    ln = line.lower()
+    for line in ln.split(','):
+        line = line.strip()
+        sel = None
+        sel_new = False
+        if 'all' in line:
+            sel = True
+        elif 'none' in line:
+            sel = False
+        elif 'new' in line:
+            sel_new = True
+        if sel is not None or sel_new:
+            for le in my_list:
+                if sel_new == False:
+                    le[0] = sel
+                else:
+                    le[0] = le[1].new_file
+            continue
+        # not a full sweep so check for specific numbers
+        # Leading '-' indicates this is a deselect
+        # TODO collect all indicies before changing anything
+        if line[0] == '-':
+            line = line[1:]
+            sel = False
+        else:
+            sel = True
+        sel_spec = line
+        sel_spec = sel_spec.strip()
+        rng_spec = sel_spec.split('-')
+        if rng_spec[0] == '':
+            print "ERROR: bad range specification {}".format(sel_spec)
+        beg_idx = int(rng_spec[0])
+        if len(rng_spec) == 1:
+            end_idx = beg_idx + 1
+        else:
+            end_idx = int(rng_spec[1]) + 1
+        if beg_idx < 0 or beg_idx >= len(my_list) or end_idx <= beg_idx or end_idx > len(my_list):
+            print 'ERROR: valid select index range is 0 through {}'.format(len(my_list) - 1)
+            return
+        for i in range(beg_idx, end_idx):
+            my_list[i][0] = sel
 
 
 if __name__ == "__main__":
