@@ -33,7 +33,9 @@ class Dbi3LogConversion:
                    "altitude_offset",
                    "extend_to_ground",
                    "fields_choice",
-                   "kml_use_metric"]
+                   "kml_use_metric",
+                   "trim_start_time",
+                   "trim_end_time"]
     kml_do_fields = {}
 
     def __init__(self, filename,
@@ -80,7 +82,13 @@ class Dbi3LogConversion:
                 data = json.load(meta)
             if verbose: print 'RDT override conversion with meta {}'.format(data)
             for fld in self.config_attr:
-                if fld in data: setattr(self, fld, data[fld])
+                if fld in data:
+                    setattr(self, fld, data[fld])
+            # the trim fields need to be converted to datetime.
+            if self.trim_start_time is not None:
+                self.trim_start_time = datetime.strptime(self.trim_start_time, "%Y%m%d%H%M%S")
+            if self.trim_end_time is not None:
+                self.trim_end_time = datetime.strptime(self.trim_end_time, "%Y%m%d%H%M%S")
 
     def kml_convert(self, base_name):
         """Function to read and convert a DBI3 log file to KML format
@@ -195,8 +203,10 @@ class Dbi3LogConversion:
                     missing_key = self.__field_check(end_fields, logvars)
                     if missing_key is None:
                         log_state = 3
-                        proc_log += '\n  Total records={}  data records={}  bad records={}'.format(tot_recs,
-                                                                                                   dat_recs, bad_recs)
+                        proc_log += '\n  Total records={}  data records={}  trim records={}  bad records={}'.format(tot_recs,
+                                                                                                   dat_recs,
+                                                                                                                    trim_recs,
+                                                                                                                    bad_recs)
                         proc_log += '\n  End time ' + end_datetime.isoformat('T') + ' Rec time ' + \
                             rec_time.isoformat('T')
                     else:
@@ -733,7 +743,7 @@ class Dbi3KmlList:
     Allows editing of the selections.  The list can then be used to drive multiple conversions.
     """
 
-    def __init__(self, log_path, kml_path, age_limit=None):
+    def __init__(self, log_path, kml_path, age_limit=None, verbose=False):
         """
 
         :param str log_path:  File system path to the DBI3 log files
@@ -744,9 +754,13 @@ class Dbi3KmlList:
         self.kml_path = kml_path
         self.age_limit = age_limit
         self.conversion_list = []
+        self.verbose = verbose
+        # TODO scan the existing KML files to determine what the "new" timestamp is
+        # e.g. the current newest KML file.
+        self.new_limit = None
 
     @property
-    def refresh_list(self):
+    def refresh_list(self, new_logs_only=False):
         """Builds list of available LOG files and selects those without a corresponding KML conversion.
 
         For each DBI3 log file, if the corresponding kml file does not exists,
@@ -754,10 +768,16 @@ class Dbi3KmlList:
 
         :return list,ConversionList:
         """
+        dt_limit = None
+        if new_logs_only and self.new_limit is not None:
+            dt_limit = self.new_limit
+        elif self.age_limit is not None:
+            dt_limit = self.age_limit
+
         self.conversion_list = []
         age_limit_name = None
-        if self.age_limit is not None:
-            age_limit_name = self.age_limit.strftime('%Y_%m_%d_%H_%M_%S_DBI3.log')
+        if dt_limit is not None:
+            age_limit_name = dt_limit.strftime('%Y_%m_%d_%H_%M_%S_DBI3.log')
         prog = re.compile('^(\d{4})_(\d\d)_(\d\d)_(\d\d)_(\d\d)_(\d\d)_DBI3.log$')
         for item in sorted(os.listdir(self.log_path)):
             selected = False
@@ -780,7 +800,8 @@ class Dbi3KmlList:
                         # meta file to override some conversion settings
                         with open(log_metaname, 'r') as meta:
                             data = json.load(meta)
-                        print 'RDT conversion meta = {}'.format(data)
+                        if self.verbose:
+                            print 'RDT conversion meta = {}'.format(data)
                     self.conversion_list.append(ConversionList(log_name=item,
                                                                log_filename=log_filename,
                                                                kml_name=kml_name,

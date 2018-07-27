@@ -142,7 +142,7 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
             else:
                 # Try to parse an age limit string
                 try:
-                    dt = datetime.strptime(ln, '%Y%m%d%H%M')
+                    dt = datetime.strptime(ln, '%Y%m%d%H%M').replace(tzinfo=DBI3LogDownload.utc)
                     CLI_age_limit = dt
                 except ValueError as e:
                     print 'ERROR: unknown filter time {} : {}'.format(ln, e.message)
@@ -189,6 +189,11 @@ class Dbi3LogListCommands(cmd.Cmd):
 
     def do_list(self, line):
         """Display the DBI3 logs available for download - all|selected"""
+        fl = []
+        if CLI_new_logs: fl.append('New files only')
+        if CLI_age_limit: fl.append('After {}'.format(CLI_age_limit))
+        if CLI_skip_invalid: fl.append('Skip invalid logs')
+        print "Filter= {}".format(':'.join(fl))
         only_sel = line == 'selected'
         for i, le in enumerate(self.my_list):
             if only_sel == False or le[0] == True:
@@ -297,8 +302,15 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
 
     def do_list(self, line):
         """Display the DBI3 logs available for KML conversion"""
+        fl = []
+        if CLI_new_logs: fl.append('New files only')
+        if CLI_age_limit: fl.append('After {}'.format(CLI_age_limit))
+        if CLI_skip_invalid: fl.append('Skip invalid logs')
+        print "Filter= {}".format(':'.join(fl))
         only_sel = line == 'selected'
         for i, le in enumerate(self.my_list):
+            if only_sel and not le[0]:
+                continue
             print "{:2d}  {} {}{}  override:{}  rcrds:{}  duration:{}".format(i,
                                                          '*' if le[0] else ' ',
                                                          le[1].log_name,
@@ -358,18 +370,24 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
         print '  Multiple selections can be specified, seperated by commas'
         print '  If you prefix a number,ranges with "-" it becomes a deselect'
 
+    def do_edit(self, line):
+        """Specify conversion edits for a specific log"""
+        print 'Not implemented'
+        # TODO create/edit/delete json meta data to set conversion edits
+        # trim start/end, altitude shift
+        
     def do_convert(self, line):
         """Convert the currently selected DBI3 logs to KML"""
         for le in self.my_list:
             if le[0]:
                 dbi3_obj = Dbi3LogConversion(le[1].log_filename, verbose=verbose)
-            rtn, rtn_str = dbi3_obj.kml_convert(le[1].kml_filename)
-            if rtn < 0:
-                print 'Convert {} to {} FAILED: {}'.format(le[1].log_name, le[1].kml_name, rtn_str)
-            elif rtn > 0 and verbose:
-                print 'Convert {} : {}'.format(le[1].log_name, rtn_str)
-            elif rtn == 0:
-                print 'Convert {}\n{}'.format(le[1].log_name, rtn_str)
+                rtn, rtn_str = dbi3_obj.kml_convert(le[1].kml_filename)
+                if rtn < 0:
+                    print 'Convert {} to {} FAILED: {}'.format(le[1].log_name, le[1].kml_name, rtn_str)
+                elif rtn > 0 and verbose:
+                    print 'Convert {} : {}'.format(le[1].log_name, rtn_str)
+                elif rtn == 0:
+                    print 'Convert {}\n{}'.format(le[1].log_name, rtn_str)
 
     def do_EOF(self, line):
         """back to Main menu"""

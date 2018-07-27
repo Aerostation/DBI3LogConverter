@@ -35,7 +35,13 @@ LogList = collections.namedtuple('LogList', 'name_start name_end start_dt end_dt
 
 
 class DBI3LogDownload:
-    """Class to access DBI3 via serial port."""
+    """Class to access DBI3 via serial port.
+
+    Known commands:
+        fs stop - stop any current logging, return ok/nok\n\r
+        md mach - unknown, return ok\n\r
+        sn - return serial number string SN12345\n\r
+        fs list - returns log list\n\r follow with fs stop or md mach to gen ok/nok to indicate end"""
     ORD_A = ord('A')
 
     DBI3_EOL = '\n\r'  # DBI3 uses backward EOL. std since the teletype has been \r\n (allowed
@@ -56,6 +62,8 @@ class DBI3LogDownload:
     verbose = None
     debug = False
     serial_fd = None  # initialized to the serial file descriptor for the DBI3 serial comm port
+
+    dbi3_sn = None  # will contain the DBI serial number when the port is opened.
 
     def __init__(self, log_path='/tmp/DBI3', com_port='/dev/ttyDBI3', verbose=False, age_limit=None, valid_only=False):
         if log_path is None or not os.path.isdir(log_path):
@@ -212,7 +220,14 @@ class DBI3LogDownload:
         self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
         self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
 
-        self.serial_fd.write('fs list\r')
+        self.serial_fd.write('sn\r')
+        res = self.__readDbi3Line()
+        if res == '':
+            raise IOError('cmd sn: returned empty')
+        self.dbi3_sn = res
+        print 'DBI3 {}'.format(res)
+
+        self.serial_fd.write('fs list\rmd mach\r')
 
         dt_limit = None
         if new_logs_only and self.new_limit is not None:
@@ -221,9 +236,14 @@ class DBI3LogDownload:
             dt_limit = self.age_limit
         log_list = []
 
-        print 'RDT dt_limit:{} valid_only:{}'.format(dt_limit, self.valid_only)
+        if self.verbose:
+            print 'RDT dt_limit:{} valid_only:{}'.format(dt_limit, self.valid_only)
         for res in iter(self.__readDbi3Line, None):
-            print 'RDT logs {}'.format(res)
+            if self.verbose:
+                print 'RDT logs {}'.format(res)
+            if res == 'ok' or res == 'nok':
+                # List ended, we got the ok/nok from the md mach command.
+                break
             rs = res.split(' ')
             start_dt = self.__fat_to_datetime(rs[0])
             # To handle scaling of the list, at this level we can ignore logs that are older that age_limit
