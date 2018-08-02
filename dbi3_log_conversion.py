@@ -80,7 +80,6 @@ class Dbi3LogConversion:
             # This log file has persisted meta data, get the config options
             with open(self.log_meta, 'r') as meta:
                 data = json.load(meta)
-            if verbose: print 'RDT override conversion with meta {}'.format(data)
             for fld in self.config_attr:
                 if fld in data:
                     setattr(self, fld, data[fld])
@@ -800,14 +799,12 @@ class Dbi3KmlList:
                         # meta file to override some conversion settings
                         with open(log_metaname, 'r') as meta:
                             data = json.load(meta)
-                        if self.verbose:
-                            print 'RDT conversion meta = {}'.format(data)
                     self.conversion_list.append(ConversionList(log_name=item,
                                                                log_filename=log_filename,
                                                                kml_name=kml_name,
                                                                kml_filename=kml_filename,
                                                                new_file=selected,
-                                                               meta_name=metaname,
+                                                               meta_name=log_metaname,
                                                                override=data))
 
         return self.conversion_list

@@ -87,6 +87,8 @@ class DBI3LogDownload:
                     print('Parse error of {}:{}'.format(item, e.message))
             if dt is not None:
                 self.new_limit = dt.replace(tzinfo=self.utc) + timedelta(seconds=1)  # make new_limit timezone aware
+                if self.verbose:
+                    print 'DBI3 new file threshold: {}'.format(self.new_limit)
                 break
 
     def __radix26_to_int(self, rad26):

@@ -12,6 +12,7 @@ import re
 from datetime import datetime, timedelta, tzinfo
 import json
 import collections
+from serial.tools.list_ports import comports
 from dbi3_log_conversion import *
 from dbi3_log_downloads import *
 
@@ -22,7 +23,174 @@ print 'CONF file:{}'.format(dbi_conf)
 log_path = '/tmp/DBI3'
 kml_path = '/tmp/DBI3/kml'
 com_port = '/dev/ttyDBI3'
+altitudemode = None
+altitude_offset = None
+age_limit = None  # in days
 verbose = True
+
+'''namedtuple for editing config files
+ field_name = the actual config file field name
+ name = may be a more user friendly paramater name
+ default = default value
+ validation_function = function to validate value
+ direct = True if the validation function does its own prompting
+ help_txt = help
+'''
+ConfigSpec = collections.namedtuple('ConfigSpec', 'field_name name default validation_func direct help_txt')
+
+def EditConfig(cfg_path):
+    data = {}
+    if os.path.isfile(cfg_path):
+        with open(cfg_path, 'r') as conf_file:
+            data = json.load(conf_file)
+
+    AppConfig = [
+        ConfigSpec('log_path', 'log_path', None, path_check, False, 'Directory path to store DBI3 log files (must already exist).'),
+        ConfigSpec('kml_path', 'kml_path', None, path_check, False, 'Directory path to store DBI3 log files (must already exist).'),
+        ConfigSpec('com_port', 'com_port', None, ask_for_port, True, 'Serial port connected to the DBI3'),
+        ConfigSpec('age_limit', 'age_limit', None, int_check, False, 'Restrict Log/KML lists to files less than age_limit days ago'),
+        ConfigSpec('verbose', 'verbose', False, true_false, False, 'Enable verbose debug output? T/F')
+    ]
+
+    UpdateConfig(cfg_path, AppConfig, data)
+
+def EditKmlConfig(cfg_path):
+    print 'RDT EditKmlConfig {}'.format(cfg_path)
+    data = {}
+    if os.path.isfile(cfg_path):
+        with open(cfg_path, 'r') as conf_file:
+            data = json.load(conf_file)
+
+    KmlConfig = [
+        ConfigSpec('altitudemode' ,'altitudemode', None, alt_mode_check, False, 'Google Earth altitude display = absolute, clampToGround, relativeToGround'),
+        ConfigSpec('altitude_offset' ,'altitude_offset', None, float_check, False, 'floating point offset to the DBI3 reported altitude'),
+        ConfigSpec('extend_to_ground' ,'extend_to_ground', True, true_false, False, 'Should Google Earth extend tracks to the ground? T/F'),
+        ConfigSpec('kml_use_metric' ,'kml_use_metric', False, true_false, False, 'Use metric instead of english measure for extra data? T/F'),
+        ConfigSpec('trim_start_time' ,'trim_start_time', None, time_check, False, 'Ignore DBI3 data until YYYYMMDDhhmmss?'),
+        ConfigSpec('trim_end_time' ,'trim_end_time', None, time_check, False, 'Ignore DBI3 data after YYYYMMDDhhmmss?')
+    ] 
+
+    print 'RDT EditKmlConfig data {}'.format(data)
+    UpdateConfig(cfg_path, KmlConfig, data)
+
+def UpdateConfig(cfg_path, Config, data):
+    print 'RDT config data {}'.format(data)
+    while True:
+        # Display the current config values.
+        print '  field(default): current_value'
+        print '==============================='
+        for i, el in enumerate(Config, 1):
+            print '{} {}({}): {}'.format(i, el.name, el.default, data.get(el.field_name, el.default))
+        print ''
+        new_val = raw_input('(s)ave, (q)uit without save, or line # to edit: ').lower()
+        if new_val.startswith('s'):
+            # If the cfg file already exists, move it to a backup name
+            if os.path.isfile(cfg_path):
+                # if a backup file already exists, remove it.
+                if os.path.isfile(cfg_path + '~'):
+                    os.remove(cfg_path + '~')
+                os.rename(cfg_path, cfg_path + '~')
+            with open(cfg_path, 'w') as conf_file:
+                json.dump(data, conf_file, indent=4, separators=(',', ': '), sort_keys=True)
+                conf_file.write('\n')
+            break
+        elif new_val.startswith('q') or new_val == '':
+            break
+        else:
+            try:
+                el = Config[int(new_val) - 1]
+            except Exception as e:
+                print 'Can not edit line [{}]: {}\n'.format(new_val, e.message)
+                continue
+
+        while True:
+            print '{}({}): {}'.format(el.name, el.default, data.get(el.field_name, el.default))
+            if not el.direct:
+                new_val = raw_input('New value: ')
+                if new_val == '':
+                    pass
+                elif new_val == '.':
+                    if el.default is None:
+                        data.pop(el.field_name, None)
+                    else:
+                        data[el.field_name] = el.default
+                elif new_val == '?':
+                    print 'HINT-{}'.format(el.help_txt)
+                    print '      cr=keep current, .=set default'
+                    continue
+                else:
+                    new_val = el.validation_func(el.name, new_val)
+                    if new_val is not None:
+                        data[el.field_name] = new_val
+                    else:
+                        # Failed validation, loop
+                        continue
+            else:
+                # The validation routine does its own prompt
+                new_val = el.validation_func(el.name, data[el.field_name])
+                if new_val is not None:
+                    data[el.field_name] = new_val
+                else:
+                    # Failed validation, loop
+                    continue
+
+            break
+
+
+def int_check(param_name, var):
+    try:
+        return int(var)
+    except Exception as e:
+        print "Exception converting {} [{}] to integer".format(param_name, var)
+    return None
+
+def path_check(param_name, new_path):
+    if not os.path.isdir(new_path):
+        print "{} path {} does not exist.".format(param_name, new_path)
+        return None
+    return new_path
+
+def true_false(param_name, selection):
+    """This will take ANY input and return True or False.  Anything that doesn't look True becomes False!"""
+    s = selection.lower()
+    if s.startswith('t') or s.startswith('y') or s.startswith('on') or s == '1':
+        return True
+    return False
+
+def alt_mode_check(param_name, mode):
+    return mode
+
+def float_check(param_name, fp_string):
+    return float(fp_string)
+
+def time_check(param_name, time_str):
+    return datetime.strptime(time_str, "%Y%m%d%H%M%S").strftime("%Y%m%d%H%M%S")
+
+def ask_for_port(param_name, com_port):
+    """\
+    Show a list of ports and ask the user for a choice. To make selection
+    easier on systems with long device names, also allow the input of an
+    index.
+    """
+    sys.stderr.write('\n--- Available ports:\n')
+    ports = []
+    for n, (port, desc, hwid) in enumerate(sorted(comports(include_links=True)), 1):
+        print ' {:2}: {:20} {}\n        [{}]'.format(n, port, desc, hwid)
+        ports.append(port)
+    while True:
+        port = raw_input('- Enter port index, full name, or "." to retain current value: ')
+        if port == '.':
+            return com_port
+        try:
+            index = int(port) - 1
+            if not 0 <= index < len(ports):
+                sys.stderr.write('--- Invalid index!\n')
+                continue
+        except ValueError:
+            pass
+        else:
+            port = ports[index]
+        return port
 
 # TODO the concept of "new" files should be based on the latest stored log/kml, not simply old missing files.
 
@@ -43,7 +211,8 @@ def convert_new_logs(log_path, kml_path):
                                                              'Y' if le.new_file else 'N',
                                                              le.override)
         if le.new_file:
-            dbi3_obj = Dbi3LogConversion(le.log_filename, verbose=verbose)
+            dbi3_obj = Dbi3LogConversion(le.log_filename, verbose=verbose, altitudemode=altitudemode,
+                                         altitude_offset=altitude_offset)
         rtn, rtn_str = dbi3_obj.kml_convert(le.kml_filename)
         if rtn < 0:
             print 'Convert {} to {} FAILED: {}'.format(le.log_name, le.kml_name, rtn_str)
@@ -51,31 +220,6 @@ def convert_new_logs(log_path, kml_path):
             print 'Convert {} : {}'.format(le.log_name, rtn_str)
         elif rtn == 0:
             print 'Convert {}\n{}'.format(le.log_name, rtn_str)
-
-    # prog = re.compile('^(\d{4})_(\d\d)_(\d\d)_(\d\d)_(\d\d)_(\d\d)_DBI3.log$')
-    # for item in sorted(os.listdir(log_path)):
-    #     log_filename = os.path.join(log_path, item)
-    #     if os.path.isfile(log_filename):
-    #         match = prog.match(item)
-    #         if match:
-    #             kml_name = match.expand('\\1\\2\\3_\\4\\5_DBI3')
-    #             kml_filename = os.path.join(kml_path, kml_name)
-    #             log_metaname = os.path.join(log_path, '.' + item[0:-4])
-    #             if not os.path.isfile(kml_filename + '.kml'):
-    #                 if os.path.isfile(log_metaname):
-    #                     # meta file to override some conversion settings
-    #                     with open(log_metaname, 'r') as meta:
-    #                         data = json.load(meta)
-    #                     print 'RDT conversion meta = {}'.format(data)
-    #
-    #                 dbi3_obj = Dbi3LogConversion(log_filename, verbose=True)
-    #                 rtn, rtn_str = dbi3_obj.kml_convert(kml_filename)
-    #                 if rtn < 0:
-    #                     print 'Convert {} to {} FAILED: {}'.format(item, kml_name, rtn_str)
-    #                 elif rtn > 0 and verbose:
-    #                     print 'Convert {} : {}'.format(item, rtn_str)
-    #                 elif rtn == 0:
-    #                     print 'Convert {}\n{}'.format(item, rtn_str)
 
 
 def process_dbi():
@@ -116,15 +260,16 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
 
     def do_config(self, line):
         """Set port, log path, kml path"""
-        print 'Not implemented yet'
+        EditConfig(dbi_conf)
 
     def do_filter(self, line):
-        """Filter DBI3 logs in the list - all|[new,YYYYMMDDhhmm]"""
+        """Filter DBI3 logs in the list - all|new|valid|invalid|DD[,...}  where DD=age_limit in days"""
         global CLI_new_logs
+        global age_limit
         global CLI_age_limit
         global CLI_skip_invalid
         if line == '':
-            print 'new_logs:{}  age_limit:{}  valid_only:{}'.format(CLI_new_logs, CLI_age_limit, CLI_skip_invalid)
+            print 'new_logs:{}  age_limit:{} Days  valid_only:{}'.format(CLI_new_logs, age_limit, CLI_skip_invalid)
             return
         for ln in line.split(','):
             ln.strip()
@@ -142,8 +287,10 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
             else:
                 # Try to parse an age limit string
                 try:
-                    dt = datetime.strptime(ln, '%Y%m%d%H%M').replace(tzinfo=DBI3LogDownload.utc)
-                    CLI_age_limit = dt
+                    age = int(ln)
+                    # dt = datetime.strptime(ln, '%Y%m%d%H%M').replace(tzinfo=DBI3LogDownload.utc)
+                    dt = datetime.utcnow() - timedelta(days=age)
+                    CLI_age_limit = dt.replace(tzinfo=DBI3LogDownload.utc)
                 except ValueError as e:
                     print 'ERROR: unknown filter time {} : {}'.format(ln, e.message)
                     continue
@@ -153,7 +300,7 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
         try:
             Dbi3LogListCommands().cmdloop()
         except IOError as e:
-            print 'RDT Can not access DBI3: {}'.format(e.message)
+            print 'Can not access DBI3: {}'.format(e.message)
 
     def do_KML(self, line):
         """Select and convert logs to KML."""
@@ -178,14 +325,14 @@ class Dbi3LogListCommands(cmd.Cmd):
 
     def preloop(self):
         self.down_load = DBI3LogDownload(log_path, com_port, verbose, age_limit=CLI_age_limit, valid_only=CLI_skip_invalid)
-        self.my_list = []
-        for le in self.down_load.get_DBI3_log_list(new_logs_only=CLI_new_logs):
-            self.my_list.append([le.new_file, le])
+        self.do_refresh('')
         self.do_help('')
 
     def do_refresh(self, line):
         """Re-read the DBI3 log list"""
-        self.log_list = self.down_load.get_DBI3_log_list()
+        self.my_list = []
+        for le in self.down_load.get_DBI3_log_list(new_logs_only=CLI_new_logs):
+            self.my_list.append([le.new_file, le])
 
     def do_list(self, line):
         """Display the DBI3 logs available for download - all|selected"""
@@ -193,11 +340,11 @@ class Dbi3LogListCommands(cmd.Cmd):
         if CLI_new_logs: fl.append('New files only')
         if CLI_age_limit: fl.append('After {}'.format(CLI_age_limit))
         if CLI_skip_invalid: fl.append('Skip invalid logs')
-        print "Filter= {}".format(':'.join(fl))
+        print "Filter=\n       {}".format(' : '.join(fl))
         only_sel = line == 'selected'
         for i, le in enumerate(self.my_list):
             if only_sel == False or le[0] == True:
-                print "{:2d}  {} {}{}  delta:{}". \
+                print "{:2d} {} {}{}  delta:{}". \
                     format(i,
                            '*' if le[0] else ' ',
                            le[1].log_name,
@@ -207,46 +354,6 @@ class Dbi3LogListCommands(cmd.Cmd):
     def do_select(self, line):
         """Select/deselect LOG list rows for KML conversion. [all, none, new, #, #-#, -#]"""
         process_select_range(line, self.my_list)
-        # ln = line.lower()
-        # for line in ln.split(','):
-        #     line = line.strip()
-        #     print 'RDT line {}'.format(line)
-        #     sel = None
-        #     sel_new = False
-        #     if 'all' in line: sel = True
-        #     elif 'none' in line: sel = False
-        #     elif 'new' in line: sel_new = True
-        #     if sel is not None or sel_new:
-        #         for le in self.my_list:
-        #             if sel_new == False:
-        #                 le[0] = sel
-        #             else:
-        #                 le[0] = le[1].new_file
-        #         continue
-        #     # not a full sweep so check for specific numbers
-        #     # Leading '-' indicates this is a deselect
-        #     # TODO collect all indicies before changing anything
-        #     if line[0] == '-':
-        #         line = line[1:]
-        #         sel = False
-        #     else:
-        #         sel = True
-        #     sel_spec = line
-        #     sel_spec = sel_spec.strip()
-        #     rng_spec = sel_spec.split('-')
-        #     print 'RDT rng_spec {}'.format(rng_spec)
-        #     if rng_spec[0] == '':
-        #         print "ERROR: bad range specification {}".format(sel_spec)
-        #     beg_idx = int(rng_spec[0])
-        #     if len(rng_spec) == 1:
-        #         end_idx = beg_idx + 1
-        #     else:
-        #         end_idx = int(rng_spec[1]) + 1
-        #     if beg_idx < 0 or beg_idx >= len(self.my_list) or end_idx <= beg_idx or end_idx > len(self.my_list):
-        #         print 'ERROR: valid select index range is 0 through {}'.format(len(self.my_list)-1)
-        #         return
-        #     for i in range(beg_idx, end_idx):
-        #         self.my_list[i][0] = sel
 
     def help_select(self):
         print 'Select/deselect LOG list rows for KML conversion.'
@@ -269,7 +376,11 @@ class Dbi3LogListCommands(cmd.Cmd):
         """Delete the selected log files on the DBI3"""
         for le in self.my_list:
             if le[0]:  # list row is marked as selected
-                print 'RDT - would delete {} {}'.format(le[1].name_start, le[1].log_name)
+                new_val = raw_input('Are you sure you want to delete {} {}? '.format(le[1].name_start, le[1].log_name))
+                if new_val.startswith('y'):
+                    self.down_load.delete_DBI3_log(le[1].name_start)
+        # TODO update list
+        print 'RDT - invalidate the list or refresh is to remove the entries'
 
     def do_EOF(self, line):
         """back to Main menu"""
@@ -286,32 +397,37 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
     my_list = []
 
     def preloop(self):
-        self.conv_list = Dbi3KmlList(log_path, kml_path)
+        self.conv_list = Dbi3KmlList(log_path, kml_path, age_limit=CLI_age_limit, verbose=verbose)
+        self.do_refresh('')  # Use the refresh command handler to fill the list
+        self.do_help('')
+
+    def do_refresh(self, line):
+        """Re-read the local DBI3 logs available for KML conversion, reset selections"""
         self.conv_list.refresh_list
         self.my_list = []
         for le in self.conv_list.conversion_list:
             dbi3_obj = Dbi3LogConversion(le.log_filename, verbose=verbose)
             log_stats = dbi3_obj.kml_summary()
+            if CLI_skip_invalid:
+                if log_stats.status <= 0:
+                    continue
+            # create my_list from conversion_list.  automatically select "new_file" and add the
+            # field for KML track statistics.
             self.my_list.append([le.new_file, le, log_stats])
-        # print "RDT {}".format(self.my_list)
-        self.do_help('')
-
-    def do_refresh(self, line):
-        """Re-read the DBI3 logs available for KML conversion"""
-        self.conv_list.refresh_list
 
     def do_list(self, line):
         """Display the DBI3 logs available for KML conversion"""
+        # Create and display a filter status line based on the settings
         fl = []
         if CLI_new_logs: fl.append('New files only')
         if CLI_age_limit: fl.append('After {}'.format(CLI_age_limit))
         if CLI_skip_invalid: fl.append('Skip invalid logs')
-        print "Filter= {}".format(':'.join(fl))
+        print "Filter=\n       {}".format(' : '.join(fl))
         only_sel = line == 'selected'
         for i, le in enumerate(self.my_list):
             if only_sel and not le[0]:
                 continue
-            print "{:2d}  {} {}{}  override:{}  rcrds:{}  duration:{}".format(i,
+            print "{:2d} {} {}{}  override:{}  rcrds:{}  duration:{}".format(i,
                                                          '*' if le[0] else ' ',
                                                          le[1].log_name,
                                                            '(new)' if le[1].new_file else '     ',
@@ -322,42 +438,6 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
     def do_select(self, line):
         """Select/deselect LOG list rows for KML conversion. [all, none, new, #, #-#, -#]"""
         process_select_range(line, self.my_list)
-        # line = line.lower()
-        # sel = None
-        # sel_new = False
-        # if 'all' in line: sel = True
-        # elif 'none' in line: sel = False
-        # elif 'new' in line: sel_new = True
-        # if sel is not None or sel_new:
-        #     for le in self.my_list:
-        #         if sel_new == False:
-        #             le[0] = sel
-        #         else:
-        #             le[0] = le[1].new_file
-        #     return
-        # # not a full sweep so check for specific numbers
-        # # Leading '-' indicates this is a deselect
-        # # TODO collect all indicies before changing anything
-        # if line[0] == '-':
-        #     line = line[1:]
-        #     sel = False
-        # else:
-        #     sel = True
-        # for sel_spec in line.split(','):
-        #     sel_spec = sel_spec.strip()
-        #     rng_spec = sel_spec.split('-')
-        #     if rng_spec[0] == '':
-        #         print "ERROR: bad range specification {}".format(sel_spec)
-        #     beg_idx = int(rng_spec[0])
-        #     if len(rng_spec) == 1:
-        #         end_idx = beg_idx + 1
-        #     else:
-        #         end_idx = int(rng_spec[1]) + 1
-        #     if beg_idx < 0 or beg_idx >= len(self.my_list) or end_idx <= beg_idx or end_idx > len(self.my_list):
-        #         print 'ERROR: valid select index range is 0 through {}'.format(len(self.my_list)-1)
-        #         return
-        #     for i in range(beg_idx, end_idx):
-        #         self.my_list[i][0] = sel
 
     def help_select(self):
         print 'Select/deselect LOG list rows for KML conversion.'
@@ -371,10 +451,15 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
         print '  If you prefix a number,ranges with "-" it becomes a deselect'
 
     def do_edit(self, line):
-        """Specify conversion edits for a specific log"""
-        print 'Not implemented'
-        # TODO create/edit/delete json meta data to set conversion edits
-        # trim start/end, altitude shift
+        """Override KML conversion for a specific log."""
+        try:
+            idx = int(line)
+            le = self.my_list[idx]
+        except Exception as e:
+            print 'Unable to edit {}: {}'.format(line, e.message)
+            return
+
+        EditKmlConfig(le[1].meta_name)
         
     def do_convert(self, line):
         """Convert the currently selected DBI3 logs to KML"""
@@ -460,26 +545,40 @@ if __name__ == "__main__":
                                      epilog="  Output filename is the input root name with a .kml extension.  The " +
                                             "optional unicsv format can be converted to other useful formats (such as GPX) by " +
                                             "the GPSBabel application")
-    parser.add_argument('--interactive', '-i', action='store_true', default=False,
-                        help='start interactive command line')
+    parser.add_argument('--sync', action='store_true', default=False,
+                        help='start non-interactive automatic download and conversion')
     parser.add_argument('--fields', action='store', default=fields_default,
                         type=lambda s: s.split(','),
                         help='Which DBI3 data fields should be included in the KML output, default={}, choices={}, ALL turns on all fields'
                         .format(','.join(fields_default), ','.join(fields_choice)))
-    parser.add_argument('--altitudemode', action='store', default='absolute',
+    parser.add_argument('--altitudemode', action='store', default=None,
                         choices=['absolute', 'clamptoground', 'relative'],
                         help='display mode for track altitude, default=absolute')
-    parser.add_argument('--offset', action='store', dest='altitude_offset', type=float, default=0.0,
+    parser.add_argument('--offset', action='store', dest='altitude_offset', type=float, default=None,
                         help='correction offset to apply to the pressure altitude, default=0.0')
-    parser.add_argument('-d', action='store', dest='dest_dir', default=None,
-                        help='destination path for the output files. Defaults to the' +
-                             ' path of the first log filename')
+    parser.add_argument('--log_path', action='store', dest='log_path', default=None,
+                        help='destination path for the output log files.')
+    parser.add_argument('--kml_path', action='store', dest='kml_path', default=None,
+                        help='destination path for the output KML files.')
+    parser.add_argument('--age_limit', action='store', default=None,
+                        help='age limit in days for looking back at old logs and KML files. default=no limit')
     parser.add_argument('--csv', action='store_true', default=False,
                         help='enable unicsv output file')
-    parser.add_argument('--verbose', action='store_true', default=False,
+    parser.add_argument('--verbose', action='store_true', default=None,
                         help='verbose output during processing')
     parser.add_argument('-V', '--version', action='version', version='%(prog)s (' + __version__ + ')')
     args = parser.parse_args()
+
+    # Read the optional config file to override our default settings
+    if os.path.isfile(dbi_conf):
+        with open(dbi_conf, 'r') as conf_file:
+            data = json.load(conf_file)
+        if 'log_path' in data: log_path = data['log_path']
+        if 'kml_path' in data: kml_path = data['kml_path']
+        if 'com_port' in data: com_port = data['com_port']
+        if 'age_limit' in data: age_limit = int(data['age_limit'])
+        if 'verbose' in data: verbose = data['verbose']
+
     # Verifiy the fields list and set the field names in a boolean dictionary
     for fn in fields_choice:
         do_field[fn] = False
@@ -492,31 +591,20 @@ if __name__ == "__main__":
             sys.exit(-1)
         else:
             do_field[fn] = True
-    verbose = args.verbose
-
-    # Read the optional config file to override our default settings
-    if os.path.isfile(dbi_conf):
-        with open(dbi_conf, 'r') as conf_file:
-            data = json.load(conf_file)
-        if 'log_path' in data: log_path = data['log_path']
-        if 'kml_path' in data: kml_path = data['kml_path']
-        if 'com_port' in data: com_port = data['com_port']
-        if 'verbose' in data: verbose = data['verbose']
+    if args.verbose is not None:
+        verbose = args.verbose
 
     # Adjust altitude_offset from feet to meters for KML offset
-    args.altitude_offset = conv_ft_to_M(args.altitude_offset)
+    if args.altitude_offset is not None:
+        args.altitude_offset = conv_ft_to_M(args.altitude_offset)
 
-    # Verify destination path, or construct destination from first log file path
-    #    if args.dest_dir is None:
-    #        dest_dir = os.path.dirname(args.filename[0])
-    #    elif not os.path.isdir(args.dest_dir):
-    #        print '-d ' + args.dest_dir + " path does not exists"
-    #        sys.exit(-1)
-    #    else:
-    #        dest_dir = args.dest_dir
+    if args.age_limit is not None:
+        age_limit = int(args.age_limit)
+    if age_limit is not None:
+        dt = datetime.utcnow() - timedelta(days=age_limit)
+        CLI_age_limit = dt.replace(tzinfo=DBI3LogDownload.utc)
 
-    print 'RDT verbose={} {}'.format(verbose, args.verbose)
-    if args.interactive:
-        Dbi3InteractiveCommandLine().cmdloop()
-    else:
+    if args.sync:
         process_dbi()
+    else:
+        Dbi3InteractiveCommandLine().cmdloop()
