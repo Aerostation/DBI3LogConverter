@@ -205,7 +205,7 @@ def convert_new_logs(log_path, kml_path):
     :return:
     """
     conv_list = Dbi3KmlList(log_path, kml_path)
-    conv_list.refresh_list
+    conv_list.refresh_list(new_logs_only=True)
     for le in conv_list.conversion_list:
         print 'RDT name:{}  new_file:{}  override:{}'.format(le.log_name,
                                                              'Y' if le.new_file else 'N',
@@ -367,10 +367,22 @@ class Dbi3LogListCommands(cmd.Cmd):
         print '  If you prefix all number,ranges with "-" it becomes a deselect'
 
     def do_download(self, line):
-        """Download the selected files"""
+        """Download the selected files, and optionally convert (add convert to command line)"""
+        and_convert = True if line == 'convert' else False
         for le in self.my_list:
             if le[0]:  # list row is marked as selected
                 self.down_load.get_DBI3_log(le[1].name_start)
+                if and_convert:
+                    kml_name = le[1].start_dt.strftime('%Y%m%d_%H%M_DBI3.kml')
+                    dbi3_obj = Dbi3LogConversion(le[1].log_filename, verbose=verbose)
+                    rtn, rtn_str = dbi3_obj.kml_convert(kml_name)
+                    if rtn < 0:
+                        print 'Convert {} to {} FAILED: {}'.format(le[1].log_name, kml_name, rtn_str)
+                    elif rtn > 0 and verbose:
+                        print 'Convert {} : {}'.format(le[1].log_name, rtn_str)
+                    elif rtn == 0:
+                        print 'Convert {}\n{}'.format(le[1].log_name, rtn_str)
+
 
     def do_delete(self, line):
         """Delete the selected log files on the DBI3"""
@@ -403,7 +415,7 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
 
     def do_refresh(self, line):
         """Re-read the local DBI3 logs available for KML conversion, reset selections"""
-        self.conv_list.refresh_list
+        self.conv_list.refresh_list(new_logs_only=CLI_new_logs)
         self.my_list = []
         for le in self.conv_list.conversion_list:
             dbi3_obj = Dbi3LogConversion(le.log_filename, verbose=verbose)

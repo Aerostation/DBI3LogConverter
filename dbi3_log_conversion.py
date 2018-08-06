@@ -12,6 +12,7 @@ from simplekml import Kml, Snippet, Types
 import math
 import collections
 import re
+from dbi3_log_downloads import DBI3LogDownload
 
 two_seconds = timedelta(seconds=2)  # time increment between data records
 kml_line_color = 'ff0000ff'  # hex aabbggrr
@@ -737,7 +738,10 @@ def calc_distance(origin, destination):
 class Dbi3KmlList:
     """Manipulate the list for DBI3 log to KML conversions.
 
-    Constructs a list of available log conversion, defaults the select to new files only.
+    Constructs a list of available log conversions, defaults the select to new files only.
+
+    New files can either be any log that doesn't have a current KML, or only logs later than
+    the current latest KML.  Default is the later.
 
     Allows editing of the selections.  The list can then be used to drive multiple conversions.
     """
@@ -748,17 +752,30 @@ class Dbi3KmlList:
         :param str log_path:  File system path to the DBI3 log files
         :param str kml_path:  File system path to the DBI3 KML files
         :param datetime age_limit: optional age limit, log files older are not considered for conversion
+        :param bool verbose:  enable verbose program flow messages
         """
         self.log_path = log_path
         self.kml_path = kml_path
         self.age_limit = age_limit
         self.conversion_list = []
         self.verbose = verbose
-        # TODO scan the existing KML files to determine what the "new" timestamp is
-        # e.g. the current newest KML file.
         self.new_limit = None
+        # The determine "new" KML we need to know the latest KML in kml_path
+        dt = None
+        for item in sorted(os.listdir(self.kml_path), reverse=True):
+            if not os.path.isfile(os.path.join(self.kml_path, item)):
+                continue
+            try:
+                dt = datetime.strptime(item, "%Y%m%d_%H%M_DBI3.kml")
+            except ValueError as e:
+                if self.debug:
+                    print('Parse error of {}:{}'.format(item, e.message))
+            if dt is not None:
+                self.new_limit = dt.replace(tzinfo=DBI3LogDownload.utc) + timedelta(minutes=1)  # make new_limit timezone aware
+                if self.verbose:
+                    print 'DBI3 new KML file threshold: {}'.format(self.new_limit)
+                break
 
-    @property
     def refresh_list(self, new_logs_only=False):
         """Builds list of available LOG files and selects those without a corresponding KML conversion.
 
@@ -808,4 +825,3 @@ class Dbi3KmlList:
                                                                override=data))
 
         return self.conversion_list
-
