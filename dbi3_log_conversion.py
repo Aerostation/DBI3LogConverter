@@ -203,12 +203,13 @@ class Dbi3LogConversion:
                     missing_key = self.__field_check(end_fields, logvars)
                     if missing_key is None:
                         log_state = 3
-                        proc_log += '\n  Total records={}  data records={}  trim records={}  bad records={}'.format(tot_recs,
-                                                                                                   dat_recs,
-                                                                                                                    trim_recs,
-                                                                                                                    bad_recs)
-                        proc_log += '\n  End time ' + end_datetime.isoformat('T') + ' Rec time ' + \
-                            rec_time.isoformat('T')
+                        if kml_start is not None:
+                            proc_log += ' --First GPS record ' + kml_start.isoformat(' ')
+                        proc_log += '\n  Total records={}  data records={}  trim records={}  bad records={}'.\
+                            format(tot_recs, dat_recs, trim_recs, bad_recs)
+                        proc_log += '\n  End time ' + end_datetime.isoformat(' ')
+                        if kml_end is not None:
+                            proc_log += ' --Last GPS record ' + kml_end.isoformat(' ')
                     else:
                         print 'End record missing field ' + missing_key
                     break
@@ -231,11 +232,10 @@ class Dbi3LogConversion:
                                 continue
 
                             dat_recs += 1
-                            if not header_line:
-                                if csv_file is not None:
-                                    print >> csv_file, 'utc_d,utc_t,alt,lat,lon,head,speed,temp'
-                                header_line = True
                             if csv_file is not None:
+                                if not header_line:
+                                    print >> csv_file, 'utc_d,utc_t,alt,lat,lon,head,speed,temp'
+                                    header_line = True
                                 print >> csv_file, rec_time.strftime('%Y/%m/%d,%H:%M:%S,') + logvars['ALT'] + \
                                                    ',' + logvars['LAT'] + ',' + logvars['LONG'] + \
                                                    ',' + logvars['COG'] + ',' + logvars['SOG'] + \

@@ -227,7 +227,7 @@ class DBI3LogDownload:
         if res == '':
             raise IOError('cmd sn: returned empty')
         self.dbi3_sn = res
-        print 'DBI3 {}'.format(res)
+        print 'RDT DBI3 {}'.format(res)
 
         self.serial_fd.write('fs list\rmd mach\r')
 

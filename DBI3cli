@@ -26,7 +26,7 @@ com_port = '/dev/ttyDBI3'
 altitudemode = None
 altitude_offset = None
 age_limit = None  # in days
-verbose = True
+verbose = False
 
 '''namedtuple for editing config files
  field_name = the actual config file field name
@@ -252,18 +252,32 @@ CLI_age_limit = None
 CLI_skip_invalid = True
 
 
+def filter_text():
+    """Create a display string documenting the current LOG filters."""
+    fl = []
+    if CLI_new_logs: fl.append('New files only')
+    if CLI_age_limit: fl.append('After {}'.format(CLI_age_limit))
+    if CLI_skip_invalid: fl.append('Skip invalid logs')
+    return ' : '.join(fl)
+
+
 class Dbi3InteractiveCommandLine(cmd.Cmd):
     prompt = '(DBI3) '
 
     def preloop(self):
         self.do_help('')
 
+    def do_help(self, *args):
+        """List available commands with "help" or detailed help with "help cmd"."""
+        cmd.Cmd.do_help(self, *args)
+        print 'CURRENT LOG FILTER: ' + filter_text()
+
     def do_config(self, line):
         """Set port, log path, kml path"""
         EditConfig(dbi_conf)
 
     def do_filter(self, line):
-        """Filter DBI3 logs in the list - all|new|valid|invalid|DD[,...}  where DD=age_limit in days"""
+        """Filter DBI3 logs in the list - all|new|old|valid|invalid|DD[,...}  where DD=age_limit in days"""
         global CLI_new_logs
         global age_limit
         global CLI_age_limit
@@ -280,6 +294,8 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
             elif ln == 'new':
                 CLI_new_logs = True
                 CLI_age_limit = None
+            elif ln == 'old':
+                CLI_new_logs = False
             elif ln == 'valid':
                 CLI_skip_invalid = True
             elif ln == 'invalid':
@@ -294,6 +310,18 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
                 except ValueError as e:
                     print 'ERROR: unknown filter time {} : {}'.format(ln, e.message)
                     continue
+
+    def help_filter(self):
+        print 'Filter out the display of logs in the Logs and KML lists.'
+        print ' filter options - all|new|old|valid|invalid|DD[,...}  where DD=age_limit in days.'
+        print '  all - turn off all filters, display all logs.'
+        print '  new - only display logs newer than the currently latest log/KML file.'
+        print '  old - reverses the new filter.'
+        print '  valid - does not display logs that are invalid (have no GPS data).'
+        print '  invalid - reverses the valid filter.'
+        print '  DD - does not display logs older than DD days.'
+        print 'This reduces the number of logs presented in the lists to a managable number'
+        print 'but can be opened up to display everything during log cleanup.'
 
     def do_Logs(self, line):
         """Read and select logs for download/delete."""
@@ -328,6 +356,11 @@ class Dbi3LogListCommands(cmd.Cmd):
         self.do_refresh('')
         self.do_help('')
 
+    def do_help(self, *args):
+        """List available commands with "help" or detailed help with "help cmd"."""
+        cmd.Cmd.do_help(self, *args)
+        print 'CURRENT LOG FILTER: ' + filter_text()
+
     def do_refresh(self, line):
         """Re-read the DBI3 log list"""
         self.my_list = []
@@ -335,12 +368,8 @@ class Dbi3LogListCommands(cmd.Cmd):
             self.my_list.append([le.new_file, le])
 
     def do_list(self, line):
-        """Display the DBI3 logs available for download - all|selected"""
-        fl = []
-        if CLI_new_logs: fl.append('New files only')
-        if CLI_age_limit: fl.append('After {}'.format(CLI_age_limit))
-        if CLI_skip_invalid: fl.append('Skip invalid logs')
-        print "Filter=\n       {}".format(' : '.join(fl))
+        """Display the DBI3 logs available for download. "list selected" limits list to only selected logs."""
+        print "Filter=\n       " + filter_text()
         only_sel = line == 'selected'
         for i, le in enumerate(self.my_list):
             if only_sel == False or le[0] == True:
@@ -367,32 +396,39 @@ class Dbi3LogListCommands(cmd.Cmd):
         print '  If you prefix all number,ranges with "-" it becomes a deselect'
 
     def do_download(self, line):
-        """Download the selected files, and optionally convert (add convert to command line)"""
-        and_convert = True if line == 'convert' else False
+        """Download the selected logs."""
         for le in self.my_list:
             if le[0]:  # list row is marked as selected
                 self.down_load.get_DBI3_log(le[1].name_start)
-                if and_convert:
-                    kml_name = le[1].start_dt.strftime('%Y%m%d_%H%M_DBI3.kml')
-                    dbi3_obj = Dbi3LogConversion(le[1].log_filename, verbose=verbose)
-                    rtn, rtn_str = dbi3_obj.kml_convert(kml_name)
-                    if rtn < 0:
-                        print 'Convert {} to {} FAILED: {}'.format(le[1].log_name, kml_name, rtn_str)
-                    elif rtn > 0 and verbose:
-                        print 'Convert {} : {}'.format(le[1].log_name, rtn_str)
-                    elif rtn == 0:
-                        print 'Convert {}\n{}'.format(le[1].log_name, rtn_str)
+
+    def do_convert(self, line):
+        """Download AND convert the selected logs."""
+        for le in self.my_list:
+            if le[0]:  # list row is marked as selected
+                self.down_load.get_DBI3_log(le[1].name_start)
+                kml_name = le[1].start_dt.strftime('%Y%m%d_%H%M_DBI3.kml')
+                dbi3_obj = Dbi3LogConversion(os.path.join(log_path, le[1].log_name), verbose=verbose)
+                rtn, rtn_str = dbi3_obj.kml_convert(kml_name)
+                if rtn < 0:
+                    print 'Convert {} to {} FAILED: {}'.format(le[1].log_name, kml_name, rtn_str)
+                elif rtn > 0 and verbose:
+                    print 'Convert {} : {}'.format(le[1].log_name, rtn_str)
+                elif rtn == 0:
+                    print 'Convert {}\n{}'.format(le[1].log_name, rtn_str)
 
 
     def do_delete(self, line):
         """Delete the selected log files on the DBI3"""
+        deleted_log = False
         for le in self.my_list:
             if le[0]:  # list row is marked as selected
                 new_val = raw_input('Are you sure you want to delete {} {}? '.format(le[1].name_start, le[1].log_name))
                 if new_val.startswith('y'):
                     self.down_load.delete_DBI3_log(le[1].name_start)
-        # TODO update list
-        print 'RDT - invalidate the list or refresh is to remove the entries'
+                    deleted_log = True
+        # Delete has invalidated the list, so refresh
+        if deleted_log:
+            self.do_refresh('')
 
     def do_EOF(self, line):
         """back to Main menu"""
@@ -413,6 +449,11 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
         self.do_refresh('')  # Use the refresh command handler to fill the list
         self.do_help('')
 
+    def do_help(self, *args):
+        """List available commands with "help" or detailed help with "help cmd"."""
+        cmd.Cmd.do_help(self, *args)
+        print 'CURRENT LOG FILTER: ' + filter_text()
+
     def do_refresh(self, line):
         """Re-read the local DBI3 logs available for KML conversion, reset selections"""
         self.conv_list.refresh_list(new_logs_only=CLI_new_logs)
@@ -428,13 +469,9 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
             self.my_list.append([le.new_file, le, log_stats])
 
     def do_list(self, line):
-        """Display the DBI3 logs available for KML conversion"""
+        """Display the DBI3 logs available for KML conversion. "list selected" limits list to only the selected logs."""
         # Create and display a filter status line based on the settings
-        fl = []
-        if CLI_new_logs: fl.append('New files only')
-        if CLI_age_limit: fl.append('After {}'.format(CLI_age_limit))
-        if CLI_skip_invalid: fl.append('Skip invalid logs')
-        print "Filter=\n       {}".format(' : '.join(fl))
+        print "Filter=\n       " + filter_text()
         only_sel = line == 'selected'
         for i, le in enumerate(self.my_list):
             if only_sel and not le[0]:
@@ -553,7 +590,9 @@ if __name__ == "__main__":
     fields_default = ['AMBT', 'TOPT', 'DIFF']
     do_field = {}
 
-    parser = argparse.ArgumentParser(description="Convert DBI3 log file(s) to KML format.",
+    parser = argparse.ArgumentParser(description="Download and/or convert DBI3 log file(s) to KML format.  The " +
+                                     "application defaults to interactive mode.  --sync automatic mode to download " +
+                                     "new logs (newer than any existing log) and automatically converting to KML",
                                      epilog="  Output filename is the input root name with a .kml extension.  The " +
                                             "optional unicsv format can be converted to other useful formats (such as GPX) by " +
                                             "the GPSBabel application")
@@ -575,7 +614,7 @@ if __name__ == "__main__":
     parser.add_argument('--age_limit', action='store', default=None,
                         help='age limit in days for looking back at old logs and KML files. default=no limit')
     parser.add_argument('--csv', action='store_true', default=False,
-                        help='enable unicsv output file')
+                        help='[OPTION CURRENTLY DISABLED] enable unicsv output file')
     parser.add_argument('--verbose', action='store_true', default=None,
                         help='verbose output during processing')
     parser.add_argument('-V', '--version', action='version', version='%(prog)s (' + __version__ + ')')
