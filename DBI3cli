@@ -127,7 +127,7 @@ def UpdateConfig(cfg_path, Config, data):
                         continue
             else:
                 # The validation routine does its own prompt
-                new_val = el.validation_func(el.name, data[el.field_name])
+                new_val = el.validation_func(el.name, data.get(el.field_name, el.default))
                 if new_val is not None:
                     data[el.field_name] = new_val
                 else:
