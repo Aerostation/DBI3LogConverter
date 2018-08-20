@@ -39,7 +39,7 @@ class Dbi3LogConversion:
                    "trim_end_time"]
     kml_do_fields = {}
 
-    def __init__(self, filename,
+    def __init__(self, filename, sn=None,
                  altitudemode=None, altitude_offset=None,
                  extend_to_ground=None, verbose=None,
                  fields_choice=None,
@@ -53,6 +53,7 @@ class Dbi3LogConversion:
         """
 
         self.filename = filename
+        self.dbi3_sn = sn
 
         # Establish config defaults
         self.altitudemode = "absolute"
@@ -194,7 +195,8 @@ class Dbi3LogConversion:
                     start_datetime = log_datetime
                     rec_time = log_datetime  # first data record timestamp is start
                     dbi3_fwver = logvars['FWVER']
-                    dbi3_sn = logvars['SN']
+                    if self.dbi3_sn is None:
+                        self.dbi3_sn = logvars['SN']
                     log_state = 2
                     proc_log += '  Start time ' + start_datetime.isoformat(' ')
                 elif log_state > 1 and log_datetime is not None:
@@ -360,7 +362,7 @@ class Dbi3LogConversion:
                                          conv_M_to_mi(avg_sog * 60 * 60) if spdIsMph else avg_sog, sogStr,
                                          kml_start.isoformat('T'),
                                          kml_end.isoformat('T'),
-                                         dbi3_sn, dbi3_fwver)
+                                         self.dbi3_sn, dbi3_fwver)
 
             #
             # Moving on to KML generation
@@ -539,7 +541,8 @@ class Dbi3LogConversion:
                     start_datetime = log_datetime
                     rec_time = log_datetime  # first data record timestamp is start
                     dbi3_fwver = logvars['FWVER']
-                    dbi3_sn = logvars['SN']
+                    if self.dbi3_sn is None:
+                       self.dbi3_sn = logvars['SN']
                     log_state = 2
                     proc_log += '  Start time ' + start_datetime.isoformat(' ')
                 elif log_state > 1 and log_datetime is not None:
@@ -793,8 +796,8 @@ class Dbi3KmlList:
         self.conversion_list = []
         age_limit_name = None
         if dt_limit is not None:
-            age_limit_name = dt_limit.strftime('%Y_%m_%d_%H_%M_%S_DBI3.log')
-        prog = re.compile('^(\d{4})_(\d\d)_(\d\d)_(\d\d)_(\d\d)_(\d\d)_DBI3.log$')
+            age_limit_name = dt_limit.strftime('%Y_%m_%d_%H_%M_%S.log')
+        prog = re.compile('^(\d{4})_(\d\d)_(\d\d)_(\d\d)_(\d\d)_(\d\d).log$')
         for item in sorted(os.listdir(self.log_path)):
             selected = False
             data = None

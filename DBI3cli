@@ -8,6 +8,7 @@ import os
 import sys
 import argparse
 import cmd
+import glob
 import re
 from datetime import datetime, timedelta, tzinfo
 import json
@@ -194,24 +195,26 @@ def ask_for_port(param_name, com_port):
 
 # TODO the concept of "new" files should be based on the latest stored log/kml, not simply old missing files.
 
-def convert_new_logs(log_path, kml_path):
+def convert_new_logs(sn_log_path, kml_path):
     """Convert new DBI3 logs to kml output
 
     For each DBI3 log file, if the corresponding kml file does not exists,
     run the conversion.
 
-    :param str log_path: path containing DBI3 log files
+    :param str sn_log_path: path containing DBI3 log files
     :param str kml_path: path containing DBI3 kml files
     :return:
     """
-    conv_list = Dbi3KmlList(log_path, kml_path)
+    conv_list = Dbi3KmlList(sn_log_path, kml_path)
     conv_list.refresh_list(new_logs_only=True)
     for le in conv_list.conversion_list:
         print 'RDT name:{}  new_file:{}  override:{}'.format(le.log_name,
                                                              'Y' if le.new_file else 'N',
                                                              le.override)
         if le.new_file:
-            dbi3_obj = Dbi3LogConversion(le.log_filename, verbose=verbose, altitudemode=altitudemode,
+            dbi3_obj = Dbi3LogConversion(le.log_filename, verbose=verbose,
+                                         sn=self.down_load.dbi3_sn,
+                                         altitudemode=altitudemode,
                                          altitude_offset=altitude_offset)
         rtn, rtn_str = dbi3_obj.kml_convert(le.kml_filename)
         if rtn < 0:
@@ -240,16 +243,19 @@ def process_dbi():
             down_load.download_selected_logs(log_list)
 
     except IOError as e:
-        print 'IO error with DBI3 on {}: {}'.format(com_port, e.message)
+        print 'IO error with DBI3({}) on {}: {}'.format(down_load.dbi3_sn, com_port, e.message)
         print 'Skip DBI3 log downloads'
         # Continue on with any log conversions
 
-    convert_new_logs(log_path, kml_path)
+    # Based on the SN of the DBI3 we are connected to, adjust the log path
+    sn_log_path = os.path.join(log_path, down_load.dbi3_sn)
+    convert_new_logs(sn_log_path, kml_path)
 
 
 CLI_new_logs = True
 CLI_age_limit = None
 CLI_skip_invalid = True
+CLI_sn_list = []  # list of current DBI3 SN? log directories
 
 
 def filter_text():
@@ -275,6 +281,7 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
     def do_config(self, line):
         """Set port, log path, kml path"""
         EditConfig(dbi_conf)
+        read_config_file(dbi_conf)  # update local config variables from the config file
 
     def do_filter(self, line):
         """Filter DBI3 logs in the list - all|new|old|valid|invalid|DD[,...}  where DD=age_limit in days"""
@@ -319,7 +326,7 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
         print '  old - reverses the new filter.'
         print '  valid - does not display logs that are invalid (have no GPS data).'
         print '  invalid - reverses the valid filter.'
-        print '  DD - does not display logs older than DD days.'
+        print '  # - does not display logs older than # days.'
         print 'This reduces the number of logs presented in the lists to a managable number'
         print 'but can be opened up to display everything during log cleanup.'
 
@@ -328,11 +335,39 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
         try:
             Dbi3LogListCommands().cmdloop()
         except IOError as e:
-            print 'Can not access DBI3: {}'.format(e.message)
+            print 'Can not access DBI3: {}'.format(e.strerror)
 
     def do_KML(self, line):
-        """Select and convert logs to KML."""
-        Dbi3KmlConversionCommands().cmdloop()
+        """Select and convert logs to KML.
+        Logs are kept in an SN specific subdirectory. If only 1 exists we
+        automatically select it.  Else prompt for a specific SN to process.
+        """
+        global CLI_sn_list
+        CLI_sn_list = []
+        # Build a list of available SN subdirectories
+        for sd in sorted(glob.glob(os.path.join(log_path, 'SN*'))):
+            if os.path.isdir(sd):
+                CLI_sn_list.append(os.path.basename(sd))
+        if len(CLI_sn_list) == 1:
+            # only one SN recorded, skip directly to KML
+            process_sn = CLI_sn_list[0]
+
+        else:
+            print 'AVAILBLE DBI3 LOG SNs:'
+            for i, dbi_sn in enumerate(CLI_sn_list, 1):
+                print '{}  {}'.format(i, dbi_sn)
+            new_val = raw_input('line number of the SerialNumber we should process: ').lower()
+            try:
+                j = int(new_val)
+                if j < 1 or j > len(CLI_sn_list):
+                    print 'Line index [{}] is out of range'.format(j)
+                    return
+                process_sn = CLI_sn_list[j - 1]
+            except Exception as e:
+                print 'Can not select line [{}]: {}\n'.format(new_val, e.message)
+                return
+        Dbi3KmlConversionCommands(process_sn).cmdloop()
+
 
     def do_EOF(self, line):
         """Exit"""
@@ -369,7 +404,8 @@ class Dbi3LogListCommands(cmd.Cmd):
 
     def do_list(self, line):
         """Display the DBI3 logs available for download. "list selected" limits list to only selected logs."""
-        print "Filter=\n       " + filter_text()
+        print '\nCURRENT LOG FILTER: ' + filter_text()
+        print 'DBI3 - ' + self.down_load.dbi3_sn
         only_sel = line == 'selected'
         for i, le in enumerate(self.my_list):
             if only_sel == False or le[0] == True:
@@ -406,8 +442,11 @@ class Dbi3LogListCommands(cmd.Cmd):
         for le in self.my_list:
             if le[0]:  # list row is marked as selected
                 self.down_load.get_DBI3_log(le[1].name_start)
+                p_path = os.path.join(log_path, self.down_load.dbi3_sn)
                 kml_name = le[1].start_dt.strftime('%Y%m%d_%H%M_DBI3.kml')
-                dbi3_obj = Dbi3LogConversion(os.path.join(log_path, le[1].log_name), verbose=verbose)
+                dbi3_obj = Dbi3LogConversion(os.path.join(p_path, le[1].log_name),
+                                             sn=self.down_load.dbi3_sn,
+                                             verbose=verbose)
                 rtn, rtn_str = dbi3_obj.kml_convert(kml_name)
                 if rtn < 0:
                     print 'Convert {} to {} FAILED: {}'.format(le[1].log_name, kml_name, rtn_str)
@@ -444,8 +483,14 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
     conv_list = None
     my_list = []
 
+    def __init__(self, dbi_sn):
+        cmd.Cmd.__init__(self)
+        self.prompt = '(DBI3:KML:{}) '.format(dbi_sn)
+        self.sn_log_path = os.path.join(log_path, dbi_sn)
+        self.dbi3_sn = dbi_sn
+
     def preloop(self):
-        self.conv_list = Dbi3KmlList(log_path, kml_path, age_limit=CLI_age_limit, verbose=verbose)
+        self.conv_list = Dbi3KmlList(self.sn_log_path, kml_path, age_limit=CLI_age_limit, verbose=verbose)
         self.do_refresh('')  # Use the refresh command handler to fill the list
         self.do_help('')
 
@@ -459,7 +504,7 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
         self.conv_list.refresh_list(new_logs_only=CLI_new_logs)
         self.my_list = []
         for le in self.conv_list.conversion_list:
-            dbi3_obj = Dbi3LogConversion(le.log_filename, verbose=verbose)
+            dbi3_obj = Dbi3LogConversion(le.log_filename, sn=self.dbi3_sn, verbose=verbose)
             log_stats = dbi3_obj.kml_summary()
             if CLI_skip_invalid:
                 if log_stats.status <= 0:
@@ -471,12 +516,12 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
     def do_list(self, line):
         """Display the DBI3 logs available for KML conversion. "list selected" limits list to only the selected logs."""
         # Create and display a filter status line based on the settings
-        print "Filter=\n       " + filter_text()
+        print '\nCURRENT LOG FILTER: ' + filter_text()
         only_sel = line == 'selected'
         for i, le in enumerate(self.my_list):
             if only_sel and not le[0]:
                 continue
-            print "{:2d} {} {}{}  override:{}  rcrds:{}  duration:{}".format(i,
+            print "{:2d} {} {}{}  tweak:{}  rcrds:{}  duration:{}".format(i,
                                                          '*' if le[0] else ' ',
                                                          le[1].log_name,
                                                            '(new)' if le[1].new_file else '     ',
@@ -514,7 +559,7 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
         """Convert the currently selected DBI3 logs to KML"""
         for le in self.my_list:
             if le[0]:
-                dbi3_obj = Dbi3LogConversion(le[1].log_filename, verbose=verbose)
+                dbi3_obj = Dbi3LogConversion(le[1].log_filename, sn=self.dbi3_sn, verbose=verbose)
                 rtn, rtn_str = dbi3_obj.kml_convert(le[1].kml_filename)
                 if rtn < 0:
                     print 'Convert {} to {} FAILED: {}'.format(le[1].log_name, le[1].kml_name, rtn_str)
@@ -555,7 +600,7 @@ def process_select_range(line, my_list):
             sel_new = True
         if sel is not None or sel_new:
             for le in my_list:
-                if sel_new == False:
+                if not sel_new:
                     le[0] = sel
                 else:
                     le[0] = le[1].new_file
@@ -583,6 +628,23 @@ def process_select_range(line, my_list):
             return
         for i in range(beg_idx, end_idx):
             my_list[i][0] = sel
+
+
+def read_config_file(dbi_conf):
+    """Read the optional config file to override our default settings"""
+    global log_path
+    global kml_path
+    global com_port
+    global age_limit
+    global verbose
+    if os.path.isfile(dbi_conf):
+        with open(dbi_conf, 'r') as conf_file:
+            data = json.load(conf_file)
+        if 'log_path' in data: log_path = data['log_path']
+        if 'kml_path' in data: kml_path = data['kml_path']
+        if 'com_port' in data: com_port = data['com_port']
+        if 'age_limit' in data: age_limit = int(data['age_limit'])
+        if 'verbose' in data: verbose = data['verbose']
 
 
 if __name__ == "__main__":
@@ -620,15 +682,8 @@ if __name__ == "__main__":
     parser.add_argument('-V', '--version', action='version', version='%(prog)s (' + __version__ + ')')
     args = parser.parse_args()
 
-    # Read the optional config file to override our default settings
-    if os.path.isfile(dbi_conf):
-        with open(dbi_conf, 'r') as conf_file:
-            data = json.load(conf_file)
-        if 'log_path' in data: log_path = data['log_path']
-        if 'kml_path' in data: kml_path = data['kml_path']
-        if 'com_port' in data: com_port = data['com_port']
-        if 'age_limit' in data: age_limit = int(data['age_limit'])
-        if 'verbose' in data: verbose = data['verbose']
+    # Read the optional config file and update specified settings
+    read_config_file(dbi_conf)
 
     # Verifiy the fields list and set the field names in a boolean dictionary
     for fn in fields_choice:

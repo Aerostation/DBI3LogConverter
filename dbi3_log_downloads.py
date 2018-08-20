@@ -19,8 +19,12 @@ Bits    Description
 10-5    Minutes (0-59)
 4-0     Seconds/2 (0-29)
 
-The original DigiTool download application would create filename of the form YYYY_MM_DD_HH_MM_SS.log
-I changed the suffix to "_DBI3.log" to flag the source of these log files.
+The original DigiTool download application created filenames of the form YYYY_MM_DD_HH_MM_SS.log.
+This format is retained, but the files are stored in a subdirectory of the form ./SN12345/ based on the
+serial number of the DBI3
+
+Some DBI3 cli commands don't produce an EOF indication (fs list, fs read).  Add an immediate 'md mach'
+after the command and use the 'md mach' 'ok/nok' response as the command EOF.
 """
 import os
 import serial
@@ -30,7 +34,7 @@ import collections
 
 __version__ = '0.1.alpah1'
 
-# Define a named tuple for DBI3 log entry rows
+# Define a named tuple for DBI3 log list entry rows
 LogList = collections.namedtuple('LogList', 'name_start name_end start_dt end_dt log_name new_file meta_name override')
 
 
@@ -42,7 +46,6 @@ class DBI3LogDownload:
         md mach - unknown, return ok\n\r
         sn - return serial number string SN12345\n\r
         fs list - returns log list\n\r follow with fs stop or md mach to gen ok/nok to indicate end"""
-    ORD_A = ord('A')
 
     DBI3_EOL = '\n\r'  # DBI3 uses backward EOL. std since the teletype has been \r\n (allowed
                        #  carriage to physically return during line-feed
@@ -62,12 +65,13 @@ class DBI3LogDownload:
     verbose = None
     debug = False
     serial_fd = None  # initialized to the serial file descriptor for the DBI3 serial comm port
+    readline_buf = None  # readline buffer to allow saving data from block reads
 
     dbi3_sn = None  # will contain the DBI serial number when the port is opened.
 
     def __init__(self, log_path='/tmp/DBI3', com_port='/dev/ttyDBI3', verbose=False, age_limit=None, valid_only=False):
         if log_path is None or not os.path.isdir(log_path):
-            raise IOError('Log file path {} does not exist.".format(log_path)')
+            raise IOError('Log file path {} does not exist.'.format(log_path))
         if com_port is None or not os.path.exists(com_port):
             raise IOError("Comm port {} does not exist.".format(com_port))
         self.log_path = log_path
@@ -75,21 +79,8 @@ class DBI3LogDownload:
         self.verbose = verbose
         self.age_limit = age_limit
         self.valid_only = valid_only
-        # The determine "new" logs we need to know the latest log in log_path
-        dt = None
-        for item in sorted(os.listdir(self.log_path), reverse=True):
-            if not os.path.isfile(os.path.join(self.log_path, item)):
-                continue
-            try:
-                dt = datetime.strptime(item, "%Y_%m_%d_%H_%M_%S_DBI3.log")
-            except ValueError as e:
-                if self.debug:
-                    print('Parse error of {}:{}'.format(item, e.message))
-            if dt is not None:
-                self.new_limit = dt.replace(tzinfo=self.utc) + timedelta(seconds=1)  # make new_limit timezone aware
-                if self.verbose:
-                    print 'DBI3 new file threshold: {}'.format(self.new_limit)
-                break
+
+        self.readline_buf = bytearray()  # init buffer for our block mode readline
 
     def __radix26_to_int(self, rad26):
         """ DBI3 log names are radix 26 encoded string.  Seven upper case characters
@@ -102,7 +93,7 @@ class DBI3LogDownload:
 
         for i in list(rad26):
             encoded_int = encoded_int * 26
-            encoded_int = encoded_int + (ord(i) - self.ORD_A)
+            encoded_int = encoded_int + (ord(i) - ord('A'))
         return encoded_int
 
     class UTC(tzinfo):
@@ -169,9 +160,8 @@ class DBI3LogDownload:
         if not os.path.exists(self.com_port):
             raise IOError('initialize serial port {} does not exist'.format(self.com_port))
 
-        self.serial_fd = serial.Serial(self.com_port, 115200, timeout=1)
+        self.serial_fd = serial.Serial(self.com_port, 115200, timeout=2, rtscts=True)
         self.serial_fd.dtr = True
-        self.serial_fd.rts = True
 
         # Ensure any pending data is flushed from the DBI3
         while True:
@@ -180,6 +170,32 @@ class DBI3LogDownload:
             if len(res) < rd_cnt:
                 # read was short, we must have timed out waiting, DBI3 finished any output
                 break
+
+        # Get the actual device serial number from the DBI3
+        self.serial_fd.write('sn\r')
+        res = self.__readDbi3Line()
+        if res == '':
+            raise IOError('cmd sn: returned empty')
+        self.dbi3_sn = res
+        print 'RDT DBI3 {}'.format(res)
+
+        # The determine "new" logs we need to know the latest log in log_path
+        p_path = os.path.join(self.log_path, self.dbi3_sn)
+        if os.path.isdir(p_path):
+            dt = None
+            for item in sorted(os.listdir(p_path), reverse=True):
+                if not os.path.isfile(os.path.join(p_path, item)):
+                    continue
+                try:
+                    dt = datetime.strptime(item, "%Y_%m_%d_%H_%M_%S.log")
+                except ValueError as e:
+                    if self.debug:
+                        print('Parse error of {}:{}'.format(item, e.message))
+                if dt is not None:
+                    self.new_limit = dt.replace(tzinfo=self.utc) + timedelta(seconds=1)  # make new_limit timezone aware
+                    if self.verbose:
+                        print 'DBI3 new file threshold: {}'.format(self.new_limit)
+                    break
 
     def __do_DBI3_cmd(self, cmd, allowed_resp):
         """
@@ -222,14 +238,9 @@ class DBI3LogDownload:
         self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
         self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
 
-        self.serial_fd.write('sn\r')
-        res = self.__readDbi3Line()
-        if res == '':
-            raise IOError('cmd sn: returned empty')
-        self.dbi3_sn = res
-        print 'RDT DBI3 {}'.format(res)
-
         self.serial_fd.write('fs list\rmd mach\r')
+
+        p_path = os.path.join(self.log_path, self.dbi3_sn)
 
         dt_limit = None
         if new_logs_only and self.new_limit is not None:
@@ -259,12 +270,12 @@ class DBI3LogDownload:
                         print 'IGNORE LOG {} due to short duration'.format(rs[0])
                     continue
 
-            log_basename = start_dt.strftime('%Y_%m_%d_%H_%M_%S_DBI3')
+            log_basename = start_dt.strftime('%Y_%m_%d_%H_%M_%S')
             log_name = log_basename + '.log'
             log_metaname = '.' + log_basename  # hidden filename for conversion metadata
 
-            log_file = os.path.join(self.log_path, log_name)
-            log_metafile = os.path.join(self.log_path, log_metaname)
+            log_file = os.path.join(p_path, log_name)
+            log_metafile = os.path.join(p_path, log_metaname)
 
             if not os.path.isfile(log_file):
                 download = True
@@ -317,18 +328,48 @@ class DBI3LogDownload:
             None - if timeout waiting for EOL sequence
             str - stripped line from DBI3
         """
-        output = ''
-        len_eol = len(self.DBI3_EOL)
+        # Read serial port in blocks to optimize during LARGE log download.
+        # Buffer any extra data until the next read line call.
+        # Return line as a stripped string to ensure spaces and extra EOL characters
+        # are removed (DBI3 EOL is \n\r which is reverse from TTY standard)
+
+        # First thing, check if the buffer already has a complete line to return.
+        i = self.readline_buf.find(b"\n")
+        if i >= 0:
+            # Return the line and remove it from the buffer
+            r = self.readline_buf[:i]
+            self.readline_buf = self.readline_buf[i + 1:]
+            return r.decode('utf8').strip()
         while True:
-            ch = self.serial_fd.read(1).decode('ascii')
-            if len(ch) == 0:
-                if len(output) != 0:
-                    print "readDbi3Line timeout with-\n[{}]".format(output)
-                return None  # timeout looking for eol
-            output += ch
-            if output[-len_eol:] == self.DBI3_EOL:
-                break
-        return output[0:-len_eol].strip()  # trim eol and white space off the return
+            i = max(1, min(2048, self.serial_fd.in_waiting))
+            data = self.serial_fd.read(i)
+            if len(data) == 0:
+                # zero data means this was a timeout and terminates read
+                if len(self.readline_buf) != 0:
+                    # This is probably an error!
+                    print 'RDT read timeout for EOL with data {}'.format(data)
+                return ''
+            i = data.find(b"\n")
+            if i >= 0:
+                # Found NL in read, prefix with any prior data, save remaining data
+                r = self.readline_buf + data[:i]
+                self.readline_buf[0:] = data[i + 1:]
+                return r.decode('utf8').strip()
+            else:
+                # No NL yet, add to existing data and read again
+                self.readline_buf.extend(data)
+        # output = ''
+        # len_eol = len(self.DBI3_EOL)
+        # while True:
+        #     ch = self.serial_fd.read(1).decode('ascii')
+        #     if len(ch) == 0:
+        #         if len(output) != 0:
+        #             print "readDbi3Line timeout with-\n[{}]".format(output)
+        #         return None  # timeout looking for eol
+        #     output += ch
+        #     if output[-len_eol:] == self.DBI3_EOL:
+        #         break
+        # return output[0:-len_eol].strip()  # trim eol and white space off the return
 
     def get_DBI3_log(self, name):
         """Down load the specified log from the DBI3 serial connection.
@@ -342,13 +383,17 @@ class DBI3LogDownload:
         self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
         self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
 
+        p_path = os.path.join(self.log_path, self.dbi3_sn)
+        if not os.path.isdir(p_path):
+            os.mkdir(p_path)
         start_dt = self.__fat_to_datetime(name)
-        log_name = start_dt.strftime('%Y_%m_%d_%H_%M_%S_DBI3.log')
-        log_file = os.path.join(self.log_path, log_name)
+        log_name = start_dt.strftime('%Y_%m_%d_%H_%M_%S.log')
+        log_file = os.path.join(p_path, log_name)
 
-        self.serial_fd.write('fs read {}\r'.format(name))
+        self.serial_fd.write('fs read {}\rmd mach\r'.format(name))
 
         line_count = 0
+        beg_down = datetime.now()  # calculate elapsed time to read log
         # Don't open the log until we have at least one line
         res = self.__readDbi3Line()
         if res is None or res == '':
@@ -357,10 +402,13 @@ class DBI3LogDownload:
 
         with open(log_file, 'w') as log_out:
             while res:
+                if res == 'ok' or res == 'nok':
+                    # this is the 'md mach' response, the log is complete
+                    break
                 line_count += 1
                 log_out.write(res + '\n')
                 res = self.__readDbi3Line()
-        print 'LOG download-{} {} ({})'.format(name, log_name, line_count)
+        print 'LOG download-{} {} ({} in {})'.format(name, log_name, line_count, datetime.now() - beg_down)
 
     def download_selected_logs(self, log_list):
         """Access DBI3 via the serial port and download new log files.
@@ -379,9 +427,5 @@ class DBI3LogDownload:
         for rs in log_list:
             if rs.new_file:
                 self.get_DBI3_log(rs.name_start)
-
-        # Clear any ongoing operations before we close the serial port
-        self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
-        self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
 
         return 0
