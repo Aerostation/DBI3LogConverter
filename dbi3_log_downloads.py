@@ -30,16 +30,17 @@ import os
 import serial
 from datetime import datetime, timedelta, tzinfo
 import json
-import collections
+
+from dbi3_common import LogList, utc
 
 __version__ = '0.1.alpah1'
-
-# Define a named tuple for DBI3 log list entry rows
-LogList = collections.namedtuple('LogList', 'name_start name_end start_dt end_dt log_name new_file meta_name override')
 
 
 class DBI3LogDownload:
     """Class to access DBI3 via serial port.
+
+    From the base log_path, we store logs in a subdirectory named after the DBI3 serial number,
+    for example "SN11005".
 
     Known commands:
         fs stop - stop any current logging, return ok/nok\n\r
@@ -96,20 +97,6 @@ class DBI3LogDownload:
             encoded_int = encoded_int + (ord(i) - ord('A'))
         return encoded_int
 
-    class UTC(tzinfo):
-        """UTC tzinfo"""
-
-        def utcoffset(self, dt):
-            return timedelta(0)
-
-        def tzname(self, dt):
-            return "UTC"
-
-        def dst(self, dt):
-            return timedelta(0)
-
-    utc = UTC()  # tzinfo for UTC
-
     def __fat_to_datetime(self, rad26):
         """
         Convert 7 character log name to datetime.
@@ -144,12 +131,16 @@ class DBI3LogDownload:
         month = fat & 0xF
         fat >>= 4
         year = (fat & 0x7F) + 1980
-        return datetime(year, month, day, hour, minute, second, tzinfo=self.utc)
+        return datetime(year, month, day, hour, minute, second, tzinfo=utc)
 
     def __initialize_dbi3_serial_port(self):
         """Initialize the comm port for DBI3 communications.
 
         Read any pending data from the DBI3.
+
+        Read the serial number from the DBI3 and set our global.
+
+        Scan the SN subdirectory to determine the latest log file to determine "newer".
 
         :return:
         :raise IOError: If the comm port does not exist.
@@ -192,7 +183,7 @@ class DBI3LogDownload:
                     if self.debug:
                         print('Parse error of {}:{}'.format(item, e.message))
                 if dt is not None:
-                    self.new_limit = dt.replace(tzinfo=self.utc) + timedelta(seconds=1)  # make new_limit timezone aware
+                    self.new_limit = dt.replace(tzinfo=utc) + timedelta(seconds=1)  # make new_limit timezone aware
                     if self.verbose:
                         print 'DBI3 new file threshold: {}'.format(self.new_limit)
                     break
@@ -265,6 +256,8 @@ class DBI3LogDownload:
             stop_dt = self.__fat_to_datetime(rs[1])
 
             if self.valid_only:
+                # Without download we can't determine if there are GPS records, we can only
+                # base "valid" on a time delta.
                 if stop_dt - start_dt < timedelta(seconds=3):
                     if self.verbose:
                         print 'IGNORE LOG {} due to short duration'.format(rs[0])
@@ -300,7 +293,7 @@ class DBI3LogDownload:
                     fileExists = True
                 else:
                     fileExists = False
-                print 'LOG-{} {}  duration {}  new_file:{} override:{}'.format('   ' if fileExists else 'new', rs[2],
+                print 'LOG-{} {}  duration {}  new_file:{}  tweak:{}'.format('   ' if fileExists else 'new', rs[2],
                                                                                rs[3] - rs[2], rs.new_file, rs.override)
 
         return log_list

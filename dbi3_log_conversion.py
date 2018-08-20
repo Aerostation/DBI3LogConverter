@@ -4,14 +4,14 @@
 
 # TODO: Add green pushpin at the start GPS, red pushpin at the end GPS
 import os
-import sys
 import json
 from datetime import datetime
 from datetime import timedelta
 from simplekml import Kml, Snippet, Types
 import math
-import collections
 import re
+
+from dbi3_common import ConversionList, SummaryList, utc
 from dbi3_log_downloads import DBI3LogDownload
 
 two_seconds = timedelta(seconds=2)  # time increment between data records
@@ -24,10 +24,6 @@ start_fields = ['FWVER', 'SN', 'DATE', 'TIME']
 data_fields = ['ALT', 'ROC', 'AMBT', 'GPSS', 'SOG', 'COG', 'LONG', 'LAT', 'TOPTS', 'TOPT', 'BATM', 'BRDT']
 end_fields = ['DATE', 'TIME']
 def_fields = ['ROC', 'TOPT', 'AMBT', 'DIFF', 'SOG', 'COG', 'BATM', 'BRDT']
-
-# Define a named tuple for DBI3 log entry rows
-ConversionList = collections.namedtuple('ConversionList', 'log_name log_filename kml_name kml_filename new_file meta_name override')
-SummaryList = collections.namedtuple('SummaryList', 'status, gps_start, gps_end, min_altitude, max_altitude')
 
 class Dbi3LogConversion:
     config_attr = ["altitudemode",
@@ -774,7 +770,7 @@ class Dbi3KmlList:
                 if self.debug:
                     print('Parse error of {}:{}'.format(item, e.message))
             if dt is not None:
-                self.new_limit = dt.replace(tzinfo=DBI3LogDownload.utc) + timedelta(minutes=1)  # make new_limit timezone aware
+                self.new_limit = dt.replace(tzinfo=utc) + timedelta(minutes=1)  # make new_limit timezone aware
                 if self.verbose:
                     print 'DBI3 new KML file threshold: {}'.format(self.new_limit)
                 break

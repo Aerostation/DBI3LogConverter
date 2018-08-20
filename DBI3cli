@@ -16,11 +16,11 @@ import collections
 from serial.tools.list_ports import comports
 from dbi3_log_conversion import *
 from dbi3_log_downloads import *
+from dbi3_common import utc
 
 __version__ = '0.1.alpah1'
 
 dbi_conf = os.path.join(os.path.expanduser('~'), '.DBI3config')
-print 'CONF file:{}'.format(dbi_conf)
 log_path = '/tmp/DBI3'
 kml_path = '/tmp/DBI3/kml'
 com_port = '/dev/ttyDBI3'
@@ -168,7 +168,7 @@ def time_check(param_name, time_str):
     return datetime.strptime(time_str, "%Y%m%d%H%M%S").strftime("%Y%m%d%H%M%S")
 
 def ask_for_port(param_name, com_port):
-    """\
+    """
     Show a list of ports and ask the user for a choice. To make selection
     easier on systems with long device names, also allow the input of an
     index.
@@ -208,7 +208,7 @@ def convert_new_logs(sn_log_path, kml_path):
     conv_list = Dbi3KmlList(sn_log_path, kml_path)
     conv_list.refresh_list(new_logs_only=True)
     for le in conv_list.conversion_list:
-        print 'RDT name:{}  new_file:{}  override:{}'.format(le.log_name,
+        print 'RDT name:{}  new_file:{}  tweak:{}'.format(le.log_name,
                                                              'Y' if le.new_file else 'N',
                                                              le.override)
         if le.new_file:
@@ -226,6 +226,10 @@ def convert_new_logs(sn_log_path, kml_path):
 
 
 def process_dbi():
+    """Non-interactive DBI3 download/convert method.
+    Download 'new' logs from the DBI3.  Convert 'new' downloaded logs to KML.
+    'new' is defined as a log newer than what is currently on the PC.
+    """
     if not os.path.isdir(log_path):
         print "Log file path {} does not exist.".format(log_path)
         exit()
@@ -253,7 +257,7 @@ def process_dbi():
 
 
 CLI_new_logs = True
-CLI_age_limit = None
+CLI_age_limit = None  # datetime of the age limit
 CLI_skip_invalid = True
 CLI_sn_list = []  # list of current DBI3 SN? log directories
 
@@ -261,10 +265,10 @@ CLI_sn_list = []  # list of current DBI3 SN? log directories
 def filter_text():
     """Create a display string documenting the current LOG filters."""
     fl = []
-    if CLI_new_logs: fl.append('New files only')
-    if CLI_age_limit: fl.append('After {}'.format(CLI_age_limit))
-    if CLI_skip_invalid: fl.append('Skip invalid logs')
-    return ' : '.join(fl)
+    if CLI_new_logs: fl.append('new_logs')
+    if CLI_skip_invalid: fl.append('skip_invalid')
+    if CLI_age_limit: fl.append('after-{}'.format(CLI_age_limit.strftime('%Y_%m_%d_%H_%M_%S')))
+    return ':'.join(fl)
 
 
 class Dbi3InteractiveCommandLine(cmd.Cmd):
@@ -311,12 +315,15 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
                 # Try to parse an age limit string
                 try:
                     age = int(ln)
-                    # dt = datetime.strptime(ln, '%Y%m%d%H%M').replace(tzinfo=DBI3LogDownload.utc)
-                    dt = datetime.utcnow() - timedelta(days=age)
-                    CLI_age_limit = dt.replace(tzinfo=DBI3LogDownload.utc)
+                    if age <= 0:
+                        CLI_age_limit = None
+                    else:
+                        dt = datetime.utcnow() - timedelta(days=age)
+                        CLI_age_limit = dt.replace(tzinfo=utc)
                 except ValueError as e:
                     print 'ERROR: unknown filter time {} : {}'.format(ln, e.message)
                     continue
+        print 'CURRENT LOG FILTER: ' + filter_text()
 
     def help_filter(self):
         print 'Filter out the display of logs in the Logs and KML lists.'
@@ -326,7 +333,7 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
         print '  old - reverses the new filter.'
         print '  valid - does not display logs that are invalid (have no GPS data).'
         print '  invalid - reverses the valid filter.'
-        print '  # - does not display logs older than # days.'
+        print '  # - does not display logs older than # days, zero clears this limit.'
         print 'This reduces the number of logs presented in the lists to a managable number'
         print 'but can be opened up to display everything during log cleanup.'
 
@@ -389,6 +396,7 @@ class Dbi3LogListCommands(cmd.Cmd):
     def preloop(self):
         self.down_load = DBI3LogDownload(log_path, com_port, verbose, age_limit=CLI_age_limit, valid_only=CLI_skip_invalid)
         self.do_refresh('')
+        self.prompt = '(DBI3:Logs:' + self.down_load.dbi3_sn + ') '
         self.do_help('')
 
     def do_help(self, *args):
@@ -405,7 +413,6 @@ class Dbi3LogListCommands(cmd.Cmd):
     def do_list(self, line):
         """Display the DBI3 logs available for download. "list selected" limits list to only selected logs."""
         print '\nCURRENT LOG FILTER: ' + filter_text()
-        print 'DBI3 - ' + self.down_load.dbi3_sn
         only_sel = line == 'selected'
         for i, le in enumerate(self.my_list):
             if only_sel == False or le[0] == True:
@@ -640,6 +647,7 @@ def read_config_file(dbi_conf):
     if os.path.isfile(dbi_conf):
         with open(dbi_conf, 'r') as conf_file:
             data = json.load(conf_file)
+            print 'DBI3 config file: {}'.format(dbi_conf)
         if 'log_path' in data: log_path = data['log_path']
         if 'kml_path' in data: kml_path = data['kml_path']
         if 'com_port' in data: com_port = data['com_port']
@@ -708,7 +716,7 @@ if __name__ == "__main__":
         age_limit = int(args.age_limit)
     if age_limit is not None:
         dt = datetime.utcnow() - timedelta(days=age_limit)
-        CLI_age_limit = dt.replace(tzinfo=DBI3LogDownload.utc)
+        CLI_age_limit = dt.replace(tzinfo=utc)
 
     if args.sync:
         process_dbi()
