@@ -242,6 +242,7 @@ def process_dbi():
         print "KML file path {} does not exist.".format(kml_path)
         exit()
 
+    down_load = None
     try:
         # log list elements contain list 'startRad26, stopRad26, start_dt, stop_dt, log_filename'
         # The log list automatically marks new logs as selected for download.
@@ -252,9 +253,13 @@ def process_dbi():
             down_load.download_selected_logs(log_list)
 
     except IOError as e:
-        print 'IO error with DBI3({}) on {}: {}'.format(down_load.dbi3_sn, com_port, e.message)
+        if down_load is not None and down_load.dbi3_sn is not None:
+            sn = down_load.dbi3_sn
+        else:
+            sn = 'unknown'
+        print 'IO error with DBI3({}) on {}: {}'.format(sn, com_port, e.message)
         print 'Skip DBI3 log downloads'
-        # Continue on with any log conversions
+        return
 
     # Based on the SN of the DBI3 we are connected to, adjust the log path
     sn_log_path = os.path.join(log_path, down_load.dbi3_sn)
