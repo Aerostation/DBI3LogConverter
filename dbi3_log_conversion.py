@@ -745,7 +745,7 @@ class Dbi3KmlList:
     Allows editing of the selections.  The list can then be used to drive multiple conversions.
     """
 
-    def __init__(self, log_path, kml_path, age_limit=None, verbose=False):
+    def __init__(self, log_path, dbi3_sn, kml_path, age_limit=None, verbose=False):
         """
 
         :param str log_path:  File system path to the DBI3 log files
@@ -754,10 +754,12 @@ class Dbi3KmlList:
         :param bool verbose:  enable verbose program flow messages
         """
         self.log_path = log_path
+        self.dbi3_sn = dbi3_sn
         self.kml_path = kml_path
         self.age_limit = age_limit
         self.conversion_list = []
         self.verbose = verbose
+        self.debug = False
         self.new_limit = None
         # The determine "new" KML we need to know the latest KML in kml_path
         dt = None
@@ -765,7 +767,7 @@ class Dbi3KmlList:
             if not os.path.isfile(os.path.join(self.kml_path, item)):
                 continue
             try:
-                dt = datetime.strptime(item, "%Y%m%d_%H%M_DBI3.kml")
+                dt = datetime.strptime(item, "%Y%m%d_%H%M_{}.kml".format(dbi3_sn))
             except ValueError as e:
                 if self.debug:
                     print('Parse error of {}:{}'.format(item, e.message))
@@ -790,37 +792,36 @@ class Dbi3KmlList:
             dt_limit = self.age_limit
 
         self.conversion_list = []
+        # If we have an age limit, construct a matching filename for comparison
         age_limit_name = None
         if dt_limit is not None:
             age_limit_name = dt_limit.strftime('%Y_%m_%d_%H_%M_%S.log')
+
         prog = re.compile('^(\d{4})_(\d\d)_(\d\d)_(\d\d)_(\d\d)_(\d\d).log$')
         for item in sorted(os.listdir(self.log_path)):
-            selected = False
-            data = None
-            metaname = None
+            match = prog.match(item)
             log_filename = os.path.join(self.log_path, item)
-            if os.path.isfile(log_filename):
-                match = prog.match(item)
-                if match:
-                    if age_limit_name is not None and item < age_limit_name:
-                        # item is too old, ignore it.
-                        continue
-                    kml_name = match.expand('\\1\\2\\3_\\4\\5_DBI3')
-                    kml_filename = os.path.join(self.kml_path, kml_name)
-                    log_metaname = os.path.join(self.log_path, '.' + item[0:-4])
-                    if not os.path.isfile(kml_filename + '.kml'):
-                        selected = True
-                    if os.path.isfile(log_metaname):
-                        metaname = log_metaname
-                        # meta file to override some conversion settings
-                        with open(log_metaname, 'r') as meta:
-                            data = json.load(meta)
-                    self.conversion_list.append(ConversionList(log_name=item,
-                                                               log_filename=log_filename,
-                                                               kml_name=kml_name,
-                                                               kml_filename=kml_filename,
-                                                               new_file=selected,
-                                                               meta_name=log_metaname,
-                                                               override=data))
+            if match and os.path.isfile(log_filename) and (age_limit_name is None or item > age_limit_name):
+                # item matches the re, is a file, and exceeds the age limit if defined
+                selected = False
+                data = None
+                metaname = None
+                kml_name = match.expand('\\1\\2\\3_\\4\\5_') + self.dbi3_sn
+                kml_filename = os.path.join(self.kml_path, kml_name)
+                log_metaname = os.path.join(self.log_path, '.' + item[0:-4])
+                if not os.path.isfile(kml_filename + '.kml'):
+                    selected = True
+                if os.path.isfile(log_metaname):
+                    metaname = log_metaname
+                    # meta file data to override some conversion settings
+                    with open(log_metaname, 'r') as meta:
+                        data = json.load(meta)
+                self.conversion_list.append(ConversionList(log_name=item,
+                                                           log_filename=log_filename,
+                                                           kml_name=kml_name,
+                                                           kml_filename=kml_filename,
+                                                           new_file=selected,
+                                                           meta_name=log_metaname,
+                                                           override=data))
 
         return self.conversion_list

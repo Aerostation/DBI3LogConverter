@@ -1,4 +1,9 @@
 # DBI3LogConverter
+DBI3 log handling has split into two applications.  The original DBI3LogConverter converts
+a single log file into KML, but it has not been kept up to date and may not work (21Aug2018).
+The newer application DBI3cli includes access to download files from the DBI3 as well as
+convert those files to KML.  UNICSV support has currently been disabled.
+
 This application reads Digitool DBI3 log files and converts them to common formats such as KML and GPX
 
 Log files on the DBI3 must first be downloaded to the PC before conversion.
@@ -34,3 +39,6 @@ There are still questions:
 - Currently, missing GPS data records are simply dropped.  The MAP display will simply show a potential straight line to the next data point.
 - Should some or all of the additional data fields be optional in the KML to reduce KML size?
 - The application will currently overwrite any existing output KML of the same name.  What should it do?
+
+BUILD - The Windows 10 conversion to EXE is currently done with:
+ C:\Python27\Scripts\pyinstaller --workpath ..\build --distpath ..\dist DBI3cli

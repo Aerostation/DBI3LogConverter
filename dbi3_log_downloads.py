@@ -28,6 +28,7 @@ after the command and use the 'md mach' 'ok/nok' response as the command EOF.
 """
 import os
 import serial
+from serial.tools.list_ports import comports
 from datetime import datetime, timedelta, tzinfo
 import json
 
@@ -70,11 +71,11 @@ class DBI3LogDownload:
 
     dbi3_sn = None  # will contain the DBI serial number when the port is opened.
 
-    def __init__(self, log_path='/tmp/DBI3', com_port='/dev/ttyDBI3', verbose=False, age_limit=None, valid_only=False):
-        if log_path is None or not os.path.isdir(log_path):
-            raise IOError('Log file path {} does not exist.'.format(log_path))
-        if com_port is None or not os.path.exists(com_port):
-            raise IOError("Comm port {} does not exist.".format(com_port))
+    def __init__(self, log_path='/tmp/DBI3', com_port=None, verbose=False, age_limit=None, valid_only=False):
+        """Initialize DBI3LogDownload and serial port.
+        If called without a serial port parameter, attempt to find a USE serial port with the
+        correct USB VID:PID that answers the 'sn' command.
+        """
         self.log_path = log_path
         self.com_port = com_port
         self.verbose = verbose
@@ -82,6 +83,23 @@ class DBI3LogDownload:
         self.valid_only = valid_only
 
         self.readline_buf = bytearray()  # init buffer for our block mode readline
+        if log_path is None or not os.path.isdir(log_path):
+            raise IOError('Log file path {} does not exist.'.format(log_path))
+        if com_port is None:
+            # try to find the appropriate DBI3 comm port by USB VID:PID for FTDI FT230X
+            for c_p in comports():
+                if c_p.vid == 0x0403 and c_p.pid == 0x6015:
+                    if com_port is not None:
+                        raise IOError('Can not select a DBI3 comm port (duplicate USB VID:PID 0403:6015)')
+                    else:
+                        com_port = c_p.device
+            if com_port is None:
+                raise IOError('Can not find a DBI3 comm port (USB VID:PID 0403:6015)')
+            self.com_port = com_port
+            print 'DBI3 auto selected port {}'.format(self.com_port)
+        elif not os.path.exists(com_port):
+            raise IOError("Comm port {} does not exist.".format(com_port))
+        self.__initialize_dbi3_serial_port()
 
     def __radix26_to_int(self, rad26):
         """ DBI3 log names are radix 26 encoded string.  Seven upper case characters
@@ -162,13 +180,16 @@ class DBI3LogDownload:
                 # read was short, we must have timed out waiting, DBI3 finished any output
                 break
 
+        # ensure the DBI3 is in a good state
+        self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
+        self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
+
         # Get the actual device serial number from the DBI3
         self.serial_fd.write('sn\r')
         res = self.__readDbi3Line()
         if res == '':
             raise IOError('cmd sn: returned empty')
         self.dbi3_sn = res
-        print 'RDT DBI3 {}'.format(res)
 
         # The determine "new" logs we need to know the latest log in log_path
         p_path = os.path.join(self.log_path, self.dbi3_sn)
@@ -284,7 +305,7 @@ class DBI3LogDownload:
             log_list.append(LogList(rs[0], rs[1], start_dt, stop_dt, log_name, download, log_metaname, metadata))
 
         log_list.sort()
-        print 'log_list length {}'.format(len(log_list))
+        print 'DBI3 Log list length {}'.format(len(log_list))
         if self.verbose:
             for rs in log_list:
                 log_file = os.path.join(self.log_path, rs[4])
@@ -401,7 +422,7 @@ class DBI3LogDownload:
                 line_count += 1
                 log_out.write(res + '\n')
                 res = self.__readDbi3Line()
-        print 'LOG download-{} {} ({} in {})'.format(name, log_name, line_count, datetime.now() - beg_down)
+        print 'LOG download-{} ({} records in {})'.format(log_name, line_count, datetime.now() - beg_down)
 
     def download_selected_logs(self, log_list):
         """Access DBI3 via the serial port and download new log files.
