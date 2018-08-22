@@ -162,12 +162,10 @@ class DBI3LogDownload:
 
         :return:
         :raise IOError: If the comm port does not exist.
+        :raise SerialException: on pyserial errors (derived from IOError)
         """
         if self.serial_fd is not None:
             return  # serial port is already initialized
-
-        if not os.path.exists(self.com_port):
-            raise IOError('initialize serial port {} does not exist'.format(self.com_port))
 
         self.serial_fd = serial.Serial(self.com_port, 115200, timeout=2, rtscts=True)
         self.serial_fd.dtr = True
