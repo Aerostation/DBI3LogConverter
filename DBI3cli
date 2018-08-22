@@ -2,7 +2,9 @@
 # vim: set sw=4 st=4 ai expandtab:
 """Drive the DBI3 log downloads and conversions to KML
 
-The is currently a default to new files.  I has no selection capability yet.
+It can run interactively with CLI menus or --sync will run automatically to find a DBI3
+serial port, download all new logs for the Serial Number DBI3, then convert all new logs
+to KML for that DBI3 SN.
 """
 import os
 import sys
@@ -20,21 +22,23 @@ from dbi3_common import utc
 
 __version__ = '0.1.alpah1'
 
-dbi_conf = os.path.join(os.path.expanduser('~'), '.DBI3config')
-log_path = os.path.join(os.path.expanduser('~'), 'Documents', 'DBI3logs')
-kml_path = os.path.join(log_path, 'kml')
+dbi_conf = os.path.join(os.path.expanduser('~'), '.DBI3config')  # hidden DBI3 config filename
+DEF_LOG_PATH = os.path.join(os.path.expanduser('~'), 'Documents', 'DBI3logs')
+DEF_KML_PATH = os.path.join(DEF_LOG_PATH, 'kml')
+log_path = DEF_LOG_PATH
+kml_path = DEF_KML_PATH
 com_port = None
 altitudemode = None
 age_limit = None  # in days
 verbose = False
 
-'''namedtuple for editing config files
- field_name = the actual config file field name
- name = may be a more user friendly paramater name
- default = default value
- validation_function = function to validate value
- direct = True if the validation function does its own prompting
- help_txt = help
+'''namedtuple for the config file editor
+        field_name = the actual config file field name
+        name = may be a more user friendly paramater name
+        default = default value
+        validation_function = function to validate value
+        direct = True if the validation function does its own prompting
+        help_txt = help
 '''
 ConfigSpec = collections.namedtuple('ConfigSpec', 'field_name name default validation_func direct help_txt')
 
@@ -45,8 +49,8 @@ def EditConfig(cfg_path):
             data = json.load(conf_file)
 
     AppConfig = [
-        ConfigSpec('log_path', 'log_path', None, path_check, False, 'Directory path to store DBI3 log files (must already exist).'),
-        ConfigSpec('kml_path', 'kml_path', None, path_check, False, 'Directory path to store DBI3 log files (must already exist).'),
+        ConfigSpec('log_path', 'log_path', DEF_LOG_PATH, path_check, False, 'Directory path to store DBI3 log files (must already exist).'),
+        ConfigSpec('kml_path', 'kml_path', DEF_KML_PATH, path_check, False, 'Directory path to store DBI3 log files (must already exist).'),
         ConfigSpec('com_port', 'com_port', None, ask_for_port, True, 'Serial port connected to the DBI3'),
         ConfigSpec('altitudemode', 'altitudemode', 'absolute', alt_mode_check, False, 'Default Google Earth altitude display = absolute, clampToGround, relativeToGround'),
         ConfigSpec('age_limit', 'age_limit', None, int_check, False, 'Restrict Log/KML lists to files less than age_limit days ago'),
@@ -56,7 +60,6 @@ def EditConfig(cfg_path):
     UpdateConfig(cfg_path, AppConfig, data)
 
 def EditKmlConfig(cfg_path):
-    print 'RDT EditKmlConfig {}'.format(cfg_path)
     data = {}
     if os.path.isfile(cfg_path):
         with open(cfg_path, 'r') as conf_file:
@@ -71,7 +74,6 @@ def EditKmlConfig(cfg_path):
         ConfigSpec('trim_end_time' ,'trim_end_time', None, time_check, False, 'Ignore DBI3 data after YYYYMMDDhhmmss?')
     ] 
 
-    print 'RDT EditKmlConfig data {}'.format(data)
     UpdateConfig(cfg_path, KmlConfig, data)
 
 def UpdateConfig(cfg_path, Config, data):
@@ -198,7 +200,7 @@ def ask_for_port(param_name, com_port):
             port = ports[index]
         return port
 
-# TODO the concept of "new" files should be based on the latest stored log/kml, not simply old missing files.
+# The concept of "new" files is based on the latest stored log/kml, not simply old missing files.
 
 
 def convert_new_logs(dbi3_sn, sn_log_path, kml_path):
@@ -214,20 +216,28 @@ def convert_new_logs(dbi3_sn, sn_log_path, kml_path):
     conv_list = Dbi3KmlList(sn_log_path, dbi3_sn, kml_path)
     conv_list.refresh_list(new_logs_only=True)
     for le in conv_list.conversion_list:
-        print 'RDT name:{}  new_file:{}  tweak:{}'.format(le.log_name,
-                                                             'Y' if le.new_file else 'N',
-                                                             le.override)
         if le.new_file:
             dbi3_obj = Dbi3LogConversion(le.log_filename, verbose=verbose,
                                          sn=dbi3_sn,
                                          altitudemode=altitudemode)
         rtn, rtn_str = dbi3_obj.kml_convert(le.kml_filename)
         if rtn < 0:
-            print 'Convert {} to {} FAILED: {}'.format(le.log_name, le.kml_name, rtn_str)
+            print 'Convert FAILED {}  new:{}  tweak:{}   to {}\n{}'.format(le.log_name,
+                                                                           'Y' if le.new_file else 'N',
+                                                                           le.override,
+                                                                           le.kml_name,
+                                                                           rtn_str)
         elif rtn > 0 and verbose:
-            print 'Convert {} : {}'.format(le.log_name, rtn_str)
+            # not converted warning (probably no GPS data)
+            print 'Convert {}  new:{}  tweak:{}\n{}'.format(le.log_name,
+                                                            'Y' if le.new_file else 'N',
+                                                            le.override,
+                                                            rtn_str)
         elif rtn == 0:
-            print 'Convert {}\n{}'.format(le.log_name, rtn_str)
+            print 'Converted {}  new:{}  tweak:{}\n{}'.format(le.log_name,
+                                                              'Y' if le.new_file else 'N',
+                                                              le.override,
+                                                              rtn_str)
 
 
 def process_dbi():
@@ -654,6 +664,7 @@ def read_config_file(dbi_conf):
     global log_path
     global kml_path
     global com_port
+    global altitudemode
     global age_limit
     global verbose
     if os.path.isfile(dbi_conf):
@@ -663,6 +674,7 @@ def read_config_file(dbi_conf):
         if 'log_path' in data: log_path = data['log_path']
         if 'kml_path' in data: kml_path = data['kml_path']
         if 'com_port' in data: com_port = data['com_port']
+        if 'altitudemode' in data: altitudemode = data['altitudemode']
         if 'age_limit' in data: age_limit = int(data['age_limit'])
         if 'verbose' in data: verbose = data['verbose']
 
@@ -697,13 +709,18 @@ if __name__ == "__main__":
     fields_choice = ['ROC', 'TOPT', 'AMBT', 'DIFF', 'SOG', 'COG', 'BATM', 'BRDT']
     fields_default = ['AMBT', 'TOPT', 'DIFF']
     do_field = {}
+    ap_description = """
+Download and/or convert DBI3 log file(s) to KML format.  The 
+application defaults to interactive mode.  --sync automatic mode to download 
+new logs (newer than any existing log) and automatically converting to KML.
+"""
+    ap_epilog = """
+The LOG output is directed to a log_path subdirectory "SNxxxxx/" for the DBI3 serial number.  The name
+format is "YYYY_MM_DD_hh_mm_ss.log".  KML output to the kml_path has a filename format of 
+"YYYYMMDD_hhmm_SNxxxxx.kml".
+"""
 
-    parser = argparse.ArgumentParser(description="Download and/or convert DBI3 log file(s) to KML format.  The " +
-                                     "application defaults to interactive mode.  --sync automatic mode to download " +
-                                     "new logs (newer than any existing log) and automatically converting to KML",
-                                     epilog="  Output filename is the input root name with a .kml extension.  The " +
-                                            "optional unicsv format can be converted to other useful formats (such as GPX) by " +
-                                            "the GPSBabel application")
+    parser = argparse.ArgumentParser(description=ap_description, epilog=ap_epilog)
     parser.add_argument('--sync', action='store_true', default=False,
                         help='start non-interactive automatic download and conversion')
     parser.add_argument('--fields', action='store', default=fields_default,

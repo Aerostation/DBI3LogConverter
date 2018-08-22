@@ -805,14 +805,12 @@ class Dbi3KmlList:
                 # item matches the re, is a file, and exceeds the age limit if defined
                 selected = False
                 data = None
-                metaname = None
                 kml_name = match.expand('\\1\\2\\3_\\4\\5_') + self.dbi3_sn
                 kml_filename = os.path.join(self.kml_path, kml_name)
                 log_metaname = os.path.join(self.log_path, '.' + item[0:-4])
                 if not os.path.isfile(kml_filename + '.kml'):
                     selected = True
                 if os.path.isfile(log_metaname):
-                    metaname = log_metaname
                     # meta file data to override some conversion settings
                     with open(log_metaname, 'r') as meta:
                         data = json.load(meta)
