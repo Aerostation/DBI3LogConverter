@@ -27,3 +27,8 @@ SummaryList = collections.namedtuple('SummaryList', 'status, gps_start, gps_end,
 
 # Define named tuple for DBI3 LOG list entries
 LogList = collections.namedtuple('LogList', 'name_start name_end start_dt end_dt log_name new_file meta_name override')
+
+# There are many additional LOG fields that can be included in the KML.  These lists are the complete set,
+# and the default set used in KML conversions.  NOTE: DIFF is a calculated value=TOPT-AMBT
+dbi_all_log_fields = ['ROC', 'TOPT', 'AMBT', 'DIFF', 'SOG', 'COG', 'BATM', 'BRDT']
+dbi_def_log_fields = ['ROC', 'TOPT', 'AMBT', 'DIFF', 'SOG', 'COG']

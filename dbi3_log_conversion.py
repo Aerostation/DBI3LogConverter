@@ -11,7 +11,7 @@ from simplekml import Kml, Snippet, Types
 import math
 import re
 
-from dbi3_common import ConversionList, SummaryList, utc
+from dbi3_common import ConversionList, SummaryList, utc, dbi_def_log_fields
 from dbi3_log_downloads import DBI3LogDownload
 
 two_seconds = timedelta(seconds=2)  # time increment between data records
@@ -19,18 +19,17 @@ kml_line_color = 'ff0000ff'  # hex aabbggrr
 kml_start_color = 'ff00ff00'
 kml_end_color = 'ff0000ff'
 
-# Required start record fields - to validate log record content
+# Required start record, data record, and end record fields - to validate log record content
 start_fields = ['FWVER', 'SN', 'DATE', 'TIME']
 data_fields = ['ALT', 'ROC', 'AMBT', 'GPSS', 'SOG', 'COG', 'LONG', 'LAT', 'TOPTS', 'TOPT', 'BATM', 'BRDT']
 end_fields = ['DATE', 'TIME']
-def_fields = ['ROC', 'TOPT', 'AMBT', 'DIFF', 'SOG', 'COG', 'BATM', 'BRDT']
 
 class Dbi3LogConversion:
     config_attr = ["altitudemode",
                    "altitude_offset",
                    "extend_to_ground",
-                   "fields_choice",
                    "kml_use_metric",
+                   "kml_fields",
                    "trim_start_time",
                    "trim_end_time"]
     kml_do_fields = {}
@@ -55,7 +54,7 @@ class Dbi3LogConversion:
         self.altitudemode = "absolute"
         self.altitude_offset = None  # floating point
         self.extend_to_ground = True
-        self.fields_choice = def_fields
+        self.kml_fields = dbi_def_log_fields
         self.kml_use_metric = False
         self.verbose = False
         self.trim_start_time = None
@@ -65,7 +64,7 @@ class Dbi3LogConversion:
         if altitudemode is not None: self.altitudemode = altitudemode
         if altitude_offset is not None: self.altitude_offset = altitude_offset
         if extend_to_ground is not None: self.extend_to_ground = extend_to_ground
-        if fields_choice is not None: self.fields_choice = fields_choice
+        if fields_choice is not None: self.kml_fields = fields_choice
         if kml_use_metric is not None: self.kml_use_metric = kml_use_metric
         if verbose is not None: self.verbose = verbose
 
@@ -286,25 +285,25 @@ class Dbi3LogConversion:
                                 top_temp = conv_C_to_F(float(logvars['TOPT'])) if tempIsF else float(logvars['TOPT'])
                             else:
                                 top_temp = min_toptF if tempIsF else min_toptC
-                            if 'AMBT' in self.fields_choice:
+                            if 'AMBT' in self.kml_fields:
                                 kml_a_temp.append(amb_temp)
-                            if 'TOPT' in self.fields_choice:
+                            if 'TOPT' in self.kml_fields:
                                 kml_t_temp.append(top_temp)
-                            if 'DIFF' in self.fields_choice:
+                            if 'DIFF' in self.kml_fields:
                                 kml_diff_t.append(top_temp - amb_temp)
-                            if 'SOG' in self.fields_choice:
+                            if 'SOG' in self.kml_fields:
                                 sog = float(logvars['SOG'])
                                 sog = conv_M_to_mi(sog * 60 * 60) if spdIsMph else sog
                                 kml_sog.append(sog)
-                            if 'COG' in self.fields_choice:
+                            if 'COG' in self.kml_fields:
                                 kml_cog.append(float(logvars['COG']))
-                            if 'ROC' in self.fields_choice:
+                            if 'ROC' in self.kml_fields:
                                 roc = float(logvars['ROC'])
                                 roc = conv_M_to_ft(roc * 60) if varioIsFpm else roc
                                 kml_roc.append(roc)
-                            if 'BATM' in self.fields_choice:
+                            if 'BATM' in self.kml_fields:
                                 kml_batm.append(float(logvars['BATM']))
-                            if 'BRDT' in self.fields_choice:
+                            if 'BRDT' in self.kml_fields:
                                 brdt = float(logvars['BRDT'])
                                 brdt = conv_C_to_F(brdt) if tempIsF else brdt
                                 kml_brdt.append(brdt)
@@ -379,21 +378,21 @@ class Dbi3LogConversion:
 
             # Create a schema for extended data
             schema = kml.newschema()
-            if 'AMBT' in self.fields_choice:
+            if 'AMBT' in self.kml_fields:
                 schema.newgxsimplearrayfield(name='a_temp', type=Types.float, displayname='Ambient ' + tempStr)
-            if 'TOPT' in self.fields_choice:
+            if 'TOPT' in self.kml_fields:
                 schema.newgxsimplearrayfield(name='t_temp', type=Types.float, displayname='Top ' + tempStr)
-            if 'DIFF' in self.fields_choice:
+            if 'DIFF' in self.kml_fields:
                 schema.newgxsimplearrayfield(name='d_temp', type=Types.float, displayname='Diff ' + tempStr)
-            if 'COG' in self.fields_choice:
+            if 'COG' in self.kml_fields:
                 schema.newgxsimplearrayfield(name='cog', type=Types.float, displayname='COG')
-            if 'SOG' in self.fields_choice:
+            if 'SOG' in self.kml_fields:
                 schema.newgxsimplearrayfield(name='sog', type=Types.float, displayname='SOG ' + sogStr)
-            if 'ROC' in self.fields_choice:
+            if 'ROC' in self.kml_fields:
                 schema.newgxsimplearrayfield(name='roc', type=Types.float, displayname='ROC ' + rocStr)
-            if 'BATM' in self.fields_choice:
+            if 'BATM' in self.kml_fields:
                 schema.newgxsimplearrayfield(name='batm', type=Types.float, displayname='BAT V')
-            if 'BRDT' in self.fields_choice:
+            if 'BRDT' in self.kml_fields:
                 schema.newgxsimplearrayfield(name='brdt', type=Types.float, displayname='BRD ' + tempStr)
 
             # Create a new track in the folder
@@ -415,21 +414,21 @@ class Dbi3LogConversion:
             pnt.style.labelstyle.color = kml_end_color
             pnt.style.iconstyle.icon.href = 'http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png'
 
-            if 'AMBT' in self.fields_choice:
+            if 'AMBT' in self.kml_fields:
                 trk.extendeddata.schemadata.newgxsimplearraydata('a_temp', kml_a_temp)
-            if 'TOPT' in self.fields_choice:
+            if 'TOPT' in self.kml_fields:
                 trk.extendeddata.schemadata.newgxsimplearraydata('t_temp', kml_t_temp)
-            if 'DIFF' in self.fields_choice:
+            if 'DIFF' in self.kml_fields:
                 trk.extendeddata.schemadata.newgxsimplearraydata('d_temp', kml_diff_t)
-            if 'COG' in self.fields_choice:
+            if 'COG' in self.kml_fields:
                 trk.extendeddata.schemadata.newgxsimplearraydata('cog', kml_cog)
-            if 'SOG' in self.fields_choice:
+            if 'SOG' in self.kml_fields:
                 trk.extendeddata.schemadata.newgxsimplearraydata('sog', kml_sog)
-            if 'ROC' in self.fields_choice:
+            if 'ROC' in self.kml_fields:
                 trk.extendeddata.schemadata.newgxsimplearraydata('roc', kml_roc)
-            if 'BATM' in self.fields_choice:
+            if 'BATM' in self.kml_fields:
                 trk.extendeddata.schemadata.newgxsimplearraydata('batm', kml_batm)
-            if 'BRDT' in self.fields_choice:
+            if 'BRDT' in self.kml_fields:
                 trk.extendeddata.schemadata.newgxsimplearraydata('brdt', kml_brdt)
 
             # Styling
