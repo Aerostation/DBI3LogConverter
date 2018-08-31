@@ -82,8 +82,8 @@ def EditKmlConfig(cfg_path):
             data = json.load(conf_file)
 
     KmlConfig = [
-        ConfigSpec('trim_start_time' ,'trim_start_time', None, time_check, False, 'Ignore DBI3 data until YYYYMMDDhhmmss?'),
-        ConfigSpec('trim_end_time' ,'trim_end_time', None, time_check, False, 'Ignore DBI3 data after YYYYMMDDhhmmss?'),
+        ConfigSpec('trim_start_time' ,'trim_start_time', None, time_check, False, 'Ignore DBI3 data until YYYYMMDDhhmmss'),
+        ConfigSpec('trim_end_time' ,'trim_end_time', None, time_check, False, 'Ignore DBI3 data after YYYYMMDDhhmmss'),
         ConfigSpec('altitudemode' ,'altitudemode', None, alt_mode_check, False, 'Google Earth altitude display = absolute, clampToGround, relativeToGround'),
         ConfigSpec('altitude_offset' ,'altitude_offset', None, float_check, False, 'floating point offset to the DBI3 reported altitude'),
         ConfigSpec('extend_to_ground' ,'extend_to_ground', True, true_false, False, 'Should Google Earth extend tracks to the ground? T/F'),

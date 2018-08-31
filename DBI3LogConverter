@@ -8,7 +8,7 @@ from datetime import datetime
 from datetime import timedelta
 from dbi3_log_conversion import Dbi3LogConversion, conv_ft_to_M
 
-__version__ = '0.4.alpah1'
+__version__ = '0.4.alpaha'
 
 
 if __name__ == '__main__':

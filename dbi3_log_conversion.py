@@ -339,42 +339,47 @@ class Dbi3LogConversion:
             # Our 'trip computer' values are formatted into a KML description string to be included in
             # the track object.
             property_table = '''<![CDATA[\
-            <table>
-            <tr><td><b>Distance </b>{:.2f} {}</td><tr>
-            <tr><td><b>Min Alt </b>{:.2f} {}</td><tr>
-            <tr><td><b>Max Alt </b>{:.2f} {}</td><tr>
-            <tr><td><b>Max Speed </b>{:.2f}({:.2f}) {}</td><tr>
-            <tr><td><b>Avg Speed </b>{:.2f} {}</td><tr>
-            <tr><td><b>Start Time </b>{}</td><tr>
-            <tr><td><b>End Time </b>{}</td><tr>
-            </table>]]>
-            DBI3  {}  FWVER {}'''.format(conv_M_to_mi(elapsed_dist) if spdIsMph else elapsed_dist, distStr,
-                                         conv_M_to_ft(min_altitude) if altIsFt else min_altitude, altStr,
-                                         conv_M_to_ft(max_altitude) if altIsFt else max_altitude, altStr,
-                                         conv_M_to_mi(max_sog * 60 * 60) if spdIsMph else max_sog,
-                                         conv_M_to_mi(max_computed_sog * 60 * 60) if spdIsMph else max_computed_sog,
-                                         sogStr,
-                                         conv_M_to_mi(avg_sog * 60 * 60) if spdIsMph else avg_sog, sogStr,
-                                         kml_start.isoformat('T'),
-                                         kml_end.isoformat('T'),
-                                         self.dbi3_sn, dbi3_fwver)
+<table>
+<tr><td><b>Distance </b>{:.2f} {}</td><tr>
+<tr><td><b>Min Alt </b>{:.2f} {}</td><tr>
+<tr><td><b>Max Alt </b>{:.2f} {}</td><tr>
+<tr><td><b>Max Speed </b>{:.2f}({:.2f}) {}</td><tr>
+<tr><td><b>Avg Speed </b>{:.2f} {}</td><tr>
+<tr><td><b>Start Time </b>{}</td><tr>
+<tr><td><b>End Time </b>{}</td><tr>
+<tr><td>DBI3  {}  FWVER {}</td><tr>
+<tr><td>Run {}</td><tr>
+</table>]]>'''.format(conv_M_to_mi(elapsed_dist) if spdIsMph else elapsed_dist, distStr,
+                                               conv_M_to_ft(min_altitude) if altIsFt else min_altitude, altStr,
+                                               conv_M_to_ft(max_altitude) if altIsFt else max_altitude, altStr,
+                                               conv_M_to_mi(max_sog * 60 * 60) if spdIsMph else max_sog,
+                                               conv_M_to_mi(
+                                                   max_computed_sog * 60 * 60) if spdIsMph else max_computed_sog,
+                                               sogStr,
+                                               conv_M_to_mi(avg_sog * 60 * 60) if spdIsMph else avg_sog, sogStr,
+                                               kml_start.isoformat('T'),
+                                               kml_end.isoformat('T'),
+                                               self.dbi3_sn, dbi3_fwver,
+                                               datetime.now().isoformat(' '))
 
             #
             # Moving on to KML generation
 
             # Create the KML document
-            kml = Kml(name="Tracks", open=1)
-            doc = kml.newdocument(name='GPS device',
-                                  snippet=Snippet('DBI3LogConverter run ' + datetime.now().isoformat(' ')))
+            kml = Kml(open=1, name=kml_start.strftime('%Y%m%d_%H%MZ_Track'), description=property_table)
+#            doc = kml.newdocument(name=kml_start.strftime('%Y%m%d_%H%MZ_Track'), description=property_table)
+                                  # snippet=Snippet('DBI3LogConverter run ' + datetime.now().isoformat(' ')))
+            doc = kml
             # kml timespan is based on the first and last valid data record, not DBI3 log start/end.
-            doc.lookat.gxtimespan.begin = kml_start.isoformat('T')
-            doc.lookat.gxtimespan.end = kml_end.isoformat('T')
-            doc.lookat.longitude = max_lon - ((max_lon - min_lon) / 2)
-            doc.lookat.latitude = max_lat - ((max_lat - min_lat) / 2)
-            doc.lookat.range = calc_distance((min_lat, min_lon), (max_lat, max_lon)) * 1.5
+            # doc.lookat.gxtimespan.begin = kml_start.isoformat('T')
+            # doc.lookat.gxtimespan.end = kml_end.isoformat('T')
+            # doc.lookat.longitude = max_lon - ((max_lon - min_lon) / 2)
+            # doc.lookat.latitude = max_lat - ((max_lat - min_lat) / 2)
+            # doc.lookat.range = calc_distance((min_lat, min_lon), (max_lat, max_lon)) * 1.5
 
             # Create a folder
-            fol = doc.newfolder(name='Tracks')
+            # fol = doc.newfolder(name='Tracks')
+            fol = doc
 
             # Create a schema for extended data
             schema = kml.newschema()
@@ -396,10 +401,15 @@ class Dbi3LogConversion:
                 schema.newgxsimplearrayfield(name='brdt', type=Types.float, displayname='BRD ' + tempStr)
 
             # Create a new track in the folder
-            trk = fol.newgxtrack(name=kml_start.strftime('%Y%m%d_%H%MZ_Track'),
+            trk = fol.newgxtrack(name=kml_start.strftime('DBI3 %Y%m%d_%H%MZ'),
                                  altitudemode=self.altitudemode,  # absolute, clampToGround, relativeToGround
                                  extrude=self.extend_to_ground,
                                  description=property_table)
+            trk.lookat.gxtimespan.begin = kml_start.isoformat('T')
+            trk.lookat.gxtimespan.end = kml_end.isoformat('T')
+            trk.lookat.longitude = max_lon - ((max_lon - min_lon) / 2)
+            trk.lookat.latitude = max_lat - ((max_lat - min_lat) / 2)
+            trk.lookat.range = calc_distance((min_lat, min_lon), (max_lat, max_lon)) * 1.5
 
             # Apply the above schema to this track
             trk.extendeddata.schemadata.schemaurl = schema.id
