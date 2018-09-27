@@ -57,4 +57,4 @@ BUILD - The Windows 10 conversion to EXE is currently done with:
  C:\Python27\Scripts\pyinstaller --clean --workpath ..\build --distpath ..\dist --onefile --console DBI3cli
       - The UBUNTU build (on HOTAIR - source ~/PyEnvs/DBI3dev/bin/activate)
  pyinstaller --clean DBI3cli
- pyinstaller --clean --onefile DBI3cli
+ pyinstaller --clean --distpath ./dist/onefile --onefile DBI3cli
