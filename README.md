@@ -53,4 +53,8 @@ ROADMAP -
 - Automate build version increment
 
 BUILD - The Windows 10 conversion to EXE is currently done with:
- C:\Python27\Scripts\pyinstaller --workpath ..\build --distpath ..\dist DBI3cli
+ C:\Python27\Scripts\pyinstaller --clean --workpath ..\build --distpath ..\dist DBI3cli
+ C:\Python27\Scripts\pyinstaller --clean --workpath ..\build --distpath ..\dist --onefile --console DBI3cli
+      - The UBUNTU build (on HOTAIR - source ~/PyEnvs/DBI3dev/bin/activate)
+ pyinstaller --clean DBI3cli
+ pyinstaller --clean --onefile DBI3cli
