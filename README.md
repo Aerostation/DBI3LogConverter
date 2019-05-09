@@ -1,9 +1,7 @@
 # DBI3LogConverter
-DBI3 log handling has split into two applications.  The original DBI3LogConverter converts
+DBI3 log handling has split into two applications.  The original **DBI3LogConverter** converts
 a single log file into KML, but it has not been kept up to date and may not work (21Aug2018).
-The newer application DBI3cli includes code to download files from the DBI3 as well as
-convert those files to KML, and allows single file conversion like the original DBI3LogConverter.
-  UNICSV support has currently been disabled.
+The newer application **DBI3cli** includes code to download files from the DBI3, convert those files to KML, and allow single file conversion like the original DBI3LogConverter.  UNICSV support is currently been disabled.
 
 This application reads Digitool DBI3 log files and converts them to common formats such as KML.
 
@@ -19,17 +17,17 @@ KML.  The "--file" option allows the conversion of a single log file in any dire
 directory.
 
 If the application has not be configured before the first interactive or --sync run, it will
-default log_path to ~/Documents/DBI3logs, kml_path to ~/Documents/DBI3logs/kml, and comm
+default log_path to *~/Documents/DBI3logs*, kml_path to *~/Documents/DBI3logs/kml*, and comm
 port to None.  Comm port=None causes the application to search the USB for the correct
 VID/PID used by the DBI3 interface chip.
 
-For end user, this python script should be packaged into a self contained executable that requires no other installations on the users computer (currently limited to 64-bit Windows 10)
+For the end user, this python script should be packaged into a self contained executable that requires no other installations on the users computer (currently limited to 64-bit Windows 10)
 
 The application uses the base name of the DBI3 log file as the basename of the KML output file.
 
-e.g:  THIS IS NO LONGER CORRECT---
+NOTE:  THE FOLLOWING IS NO LONGER CORRECT ---
 From CMD terminal (Windows Key, type cmd, select "Command Prompt")
-```
+```command
 C:\Users\{username}> cd Downloads
 C:\Users\{username}\Downloads> DBI3LogConverter.exe -d . 2018_03_25_13_43_18.log
   or
@@ -39,11 +37,10 @@ Assumes you saved the logs in your Documents directory and want to place the res
 
 
 
-Currently the app will output KML with additional data by default.  UNICSV is optional with a command line option
- but currently disabled.
+Currently the DBI3cli app will output KML with additional data by default.  [DISABLED- UNICSV is optional with a command line option.]
 
 There are still questions:
-- If there are data dropouts, e.g. the top temp is not always available, what can we do in the KML output
+- If there are data dropouts, e.g. the top temp is not always available, what can we do in the KML output (select an identifiable default)
 - Currently, missing GPS data records are simply dropped.  The MAP display will simply show a potential straight line to the next data point.
 - Should some or all of the additional data fields be optional in the KML to reduce KML size?
 - The application will currently overwrite any existing output KML of the same name.  What should it do?
@@ -53,8 +50,14 @@ ROADMAP -
 - Automate build version increment
 
 BUILD - The Windows 10 conversion to EXE is currently done with:
- C:\Python27\Scripts\pyinstaller --clean --workpath ..\build --distpath ..\dist DBI3cli
- C:\Python27\Scripts\pyinstaller --clean --workpath ..\build --distpath ..\dist --onefile --console DBI3cli
-      - The UBUNTU build (on HOTAIR - source ~/PyEnvs/DBI3dev/bin/activate)
- pyinstaller --clean DBI3cli
- pyinstaller --clean --distpath ./dist/onefile --onefile DBI3cli
+```command
+C:\Python27\Scripts\pyinstaller --clean --workpath ..\build --distpath ..\dist DBI3cli
+C:\Python27\Scripts\pyinstaller --clean --workpath ..\build --distpath ..\dist --onefile --console DBI3cli
+```
+
+BUILD UBUNTU - on HOTAIR:
+```bash
+source ~/PyEnvs/DBI3dev/bin/activate
+pyinstaller --clean DBI3cli
+pyinstaller --clean --distpath ./dist/onefile --onefile DBI3cli
+```
