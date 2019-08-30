@@ -218,9 +218,7 @@ class Dbi3LogConversion:
                             ####
                             # This is a data record and it has GPS data
                             ####
-                            # TODO if trim_start is defined and rec_time < trim_start
-                            #  or  trim_end is defined and rec_time > trim_end,
-                            #      count as trim_recs and skip to the next record
+                            # Check for start/end time trim
                             if self.trim_start_time is not None and rec_time < self.trim_start_time:
                                 trim_recs += 1
                                 continue

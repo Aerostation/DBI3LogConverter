@@ -312,7 +312,7 @@ class DBI3LogDownload:
                     fileExists = True
                 else:
                     fileExists = False
-                print 'LOG-{} {}  duration {}  new_file:{}  tweak:{}'.format('   ' if fileExists else 'new', rs[2],
+                print 'LOG-{} {}  duration {}  new_file:{}  edits:{}'.format('   ' if fileExists else 'new', rs[2],
                                                                                rs[3] - rs[2], rs.new_file, rs.override)
 
         return log_list

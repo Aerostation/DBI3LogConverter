@@ -283,19 +283,19 @@ def convert_new_logs(dbi3_sn, sn_log_path, kml_path):
                                          verbose=verbose)
         rtn, rtn_str = dbi3_obj.kml_convert(le.kml_filename)
         if rtn < 0:
-            print 'Convert FAILED {}  new:{}  tweak:{}   to {}\n{}'.format(le.log_name,
+            print 'Convert FAILED {}  new:{}  edits:{}   to {}\n{}'.format(le.log_name,
                                                                            'Y' if le.new_file else 'N',
                                                                            le.override,
                                                                            le.kml_name,
                                                                            rtn_str)
         elif rtn > 0 and verbose:
             # not converted warning (probably no GPS data)
-            print 'Convert {}  new:{}  tweak:{}\n{}'.format(le.log_name,
+            print 'Convert {}  new:{}  edits:{}\n{}'.format(le.log_name,
                                                             'Y' if le.new_file else 'N',
                                                             le.override,
                                                             rtn_str)
         elif rtn == 0:
-            print 'Converted {}  new:{}  tweak:{}\n{}'.format(le.log_name,
+            print 'Converted {}  new:{}  edits:{}\n{}'.format(le.log_name,
                                                               'Y' if le.new_file else 'N',
                                                               le.override,
                                                               rtn_str)
@@ -358,7 +358,7 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
         'The Log menu connects to the DBI3 and allows download, conversion, and\n'\
         ' deletion from the DBI3 instrument.\n'\
         'The KML menu allows conversion of logs previously downloaded from the DBI3\n'\
-        ' (the DBI3 does not need to be connected).  KML also allows tweaks to be set\n'\
+        ' (the DBI3 does not need to be connected).  KML also allows edits to be set\n'\
         ' for each individual log to trim excess records from the start or end, correct\n'\
         ' altimeter offset, select Google Earth altitude mode and extend_to_ground settings.\n'
 
@@ -432,17 +432,17 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
         print 'This reduces the number of logs presented in the lists to a managable number'
         print 'but can be opened up to display everything during log cleanup.'
 
-    def do_Logs(self, line):
+    def do_logs(self, line):
         """Read and select logs for download/delete."""
         try:
             Dbi3LogListCommands().cmdloop()
         except IOError as e:
             print 'Can not access DBI3: {}'.format(e)
 
-    def do_KML(self, line):
+    def do_kml(self, line):
         """Select and convert logs to KML.
-        Logs are kept in an SN specific subdirectory. If only 1 exists we
-        automatically select it.  Else prompt for a specific SN to process.
+        Logs are kept in an SN specific subdirectory. If only 1 SN exists we
+        automatically select it, else prompt for a specific SN to process.
         """
         global CLI_sn_list
         CLI_sn_list = []
@@ -571,7 +571,8 @@ class Dbi3LogListCommands(cmd.Cmd):
         deleted_log = False
         for le in self.my_list:
             if le[0]:  # list row is marked as selected
-                new_val = raw_input('Are you sure you want to delete {} {}? '.format(le[1].name_start, le[1].log_name))
+                new_val = raw_input('This will delete {} {} from the DBI3.\nAre you sure you want to continue? '.
+                                    format(le[1].name_start, le[1].log_name))
                 if new_val.startswith('y'):
                     self.down_load.delete_DBI3_log(le[1].name_start)
                     deleted_log = True
@@ -637,7 +638,7 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
         for i, le in enumerate(self.my_list):
             if only_sel and not le[0]:
                 continue
-            print "{:2d} {} {}{}  tweak:{}  rcrds:{}  duration:{}".format(i,
+            print "{:2d} {} {}{}  edits:{}  rcrds:{:4d}  duration:{}".format(i,
                                                          '*' if le[0] else ' ',
                                                          le[1].log_name,
                                                            '(new)' if le[1].new_file else '     ',
@@ -663,7 +664,7 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
         print '  If you prefix a number,ranges with "-" it becomes a deselect'
 
     def do_edit(self, line):
-        """Override KML conversion for a specific log."""
+        """Override KML conversion for a specific log.  Requires a line number from the list for the specific log."""
         try:
             idx = int(line)
             le = self.my_list[idx]
@@ -697,7 +698,7 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
         return True
 
     def do_exit(self, line):
-        """exint back to Main menu"""
+        """exit back to Main menu"""
         return True
 
 
