@@ -31,8 +31,8 @@ class Dbi3LogConversion:
                    "kml_use_metric",
                    "kml_fields",
                    "trim_start_time",
-                   "trim_end_time"]
-    kml_do_fields = {}
+                   "trim_end_time",
+                   "track_note"]
 
     def __init__(self, filename, sn=None,
                  altitudemode=None, altitude_offset=None,
@@ -59,6 +59,7 @@ class Dbi3LogConversion:
         self.verbose = False
         self.trim_start_time = None
         self.trim_end_time = None
+        self.track_note = None
 
         # Override defaults with optional parameters
         if altitudemode is not None: self.altitudemode = altitudemode
@@ -277,6 +278,8 @@ class Dbi3LogConversion:
 
                             #
                             # Additional data fields
+
+                            # Round floating point data to a reasonable accuracy (e.g. 1 or 2 digit)
                             #
                             amb_temp = conv_C_to_F(float(logvars['AMBT'])) if tempIsF else float(logvars['AMBT'])
                             if logvars['TOPTS'] == '1':
@@ -291,19 +294,19 @@ class Dbi3LogConversion:
                                 kml_diff_t.append(top_temp - amb_temp)
                             if 'SOG' in self.kml_fields:
                                 sog = float(logvars['SOG'])
-                                sog = conv_M_to_mi(sog * 60 * 60) if spdIsMph else sog
+                                sog = round(conv_M_to_mi(sog * 60 * 60) if spdIsMph else sog, 1)
                                 kml_sog.append(sog)
                             if 'COG' in self.kml_fields:
-                                kml_cog.append(float(logvars['COG']))
+                                kml_cog.append(round(float(logvars['COG']), 1))
                             if 'ROC' in self.kml_fields:
                                 roc = float(logvars['ROC'])
-                                roc = conv_M_to_ft(roc * 60) if varioIsFpm else roc
+                                roc = round(conv_M_to_ft(roc * 60) if varioIsFpm else roc, 1)
                                 kml_roc.append(roc)
                             if 'BATM' in self.kml_fields:
-                                kml_batm.append(float(logvars['BATM']))
+                                kml_batm.append(round(float(logvars['BATM']), 2))
                             if 'BRDT' in self.kml_fields:
                                 brdt = float(logvars['BRDT'])
-                                brdt = conv_C_to_F(brdt) if tempIsF else brdt
+                                brdt = round(conv_C_to_F(brdt) if tempIsF else brdt, 2)
                                 kml_brdt.append(brdt)
                             # Finished a valid data record, capture the first time as kml_start,
                             # update kml_end on each valid data record so we have the last time.
@@ -334,29 +337,40 @@ class Dbi3LogConversion:
 
             avg_sog = elapsed_dist / (kml_end - kml_start).total_seconds()  # in meters/second
 
+            e_hr, remainder = divmod(int((kml_end - kml_start).total_seconds()), 3600)
+            e_min, e_sec = divmod(remainder, 60)
+
+            if self.track_note:
+                t_note = '<b>{}</b>\n'.format(self.track_note)
+            else:
+                t_note = ''
+
             # Our 'trip computer' values are formatted into a KML description string to be included in
             # the track object.
-            property_table = '''<![CDATA[\
+            property_table = '''<![CDATA[{}\
 <table>
 <tr><td><b>Distance </b>{:.2f} {}</td><tr>
 <tr><td><b>Min Alt </b>{:.2f} {}</td><tr>
 <tr><td><b>Max Alt </b>{:.2f} {}</td><tr>
-<tr><td><b>Max Speed </b>{:.2f}({:.2f}) {}</td><tr>
 <tr><td><b>Avg Speed </b>{:.2f} {}</td><tr>
+<tr><td><b>Max Speed </b>{:.2f}(SOG {:.2f}) {}</td><tr>
 <tr><td><b>Start Time </b>{}</td><tr>
 <tr><td><b>End Time </b>{}</td><tr>
+<tr><td><b>Elapsed </b>{:02d}:{:02d}:{:02d}</td><tr>
 <tr><td>DBI3  {}  FWVER {}</td><tr>
-<tr><td>Run {}</td><tr>
-</table>]]>'''.format(conv_M_to_mi(elapsed_dist) if spdIsMph else elapsed_dist, distStr,
+<tr><td>Formatted {}</td><tr>
+</table>]]>'''.format(t_note,
+                      conv_M_to_mi(elapsed_dist) if spdIsMph else elapsed_dist, distStr,
                                                conv_M_to_ft(min_altitude) if altIsFt else min_altitude, altStr,
                                                conv_M_to_ft(max_altitude) if altIsFt else max_altitude, altStr,
-                                               conv_M_to_mi(max_sog * 60 * 60) if spdIsMph else max_sog,
+                                               conv_M_to_mi(avg_sog * 60 * 60) if spdIsMph else avg_sog, sogStr,
                                                conv_M_to_mi(
                                                    max_computed_sog * 60 * 60) if spdIsMph else max_computed_sog,
+                                               conv_M_to_mi(max_sog * 60 * 60) if spdIsMph else max_sog,
                                                sogStr,
-                                               conv_M_to_mi(avg_sog * 60 * 60) if spdIsMph else avg_sog, sogStr,
                                                kml_start.isoformat('T'),
                                                kml_end.isoformat('T'),
+                                               e_hr, e_min, e_sec,
                                                self.dbi3_sn, dbi3_fwver,
                                                datetime.now().isoformat(' '))
 
@@ -364,7 +378,7 @@ class Dbi3LogConversion:
             # Moving on to KML generation
 
             # Create the KML document
-            kml = Kml(open=1, name=kml_start.strftime('%Y%m%d_%H%MZ_Track'), description=property_table)
+            kml = Kml(open=1, name=kml_start.strftime('%Y%m%d_%H%MZ_DBI3'), description=property_table)
 #            doc = kml.newdocument(name=kml_start.strftime('%Y%m%d_%H%MZ_Track'), description=property_table)
                                   # snippet=Snippet('DBI3LogConverter run ' + datetime.now().isoformat(' ')))
             doc = kml
@@ -399,7 +413,7 @@ class Dbi3LogConversion:
                 schema.newgxsimplearrayfield(name='brdt', type=Types.float, displayname='BRD ' + tempStr)
 
             # Create a new track in the folder
-            trk = fol.newgxtrack(name=kml_start.strftime('DBI3 %Y%m%d_%H%MZ'),
+            trk = fol.newgxtrack(name=kml_start.strftime('%Y%m%d_%H%MZ Track'),
                                  altitudemode=self.altitudemode,  # absolute, clampToGround, relativeToGround
                                  extrude=self.extend_to_ground,
                                  description=property_table)
@@ -412,16 +426,23 @@ class Dbi3LogConversion:
             # Apply the above schema to this track
             trk.extendeddata.schemadata.schemaurl = schema.id
 
+            #
             # Add all the information to the track
+            #
             trk.newwhen(kml_when)  # Each item in the give nlist will become a new <when> tag
             trk.newgxcoord(kml_coord)
+
+            # Add points to the start and end of the track
             pnt = fol.newpoint(name='Start', coords=[(kml_start_lon, kml_start_lat)])
+            pnt.description = kml_start.isoformat('T')
             pnt.style.labelstyle.color = kml_start_color
             pnt.style.iconstyle.icon.href = 'http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png'
             pnt = fol.newpoint(name='Finish', coords=[(kml_end_lon, kml_end_lat)])
+            pnt.description = kml_end.isoformat('T')
             pnt.style.labelstyle.color = kml_end_color
             pnt.style.iconstyle.icon.href = 'http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png'
 
+            # Add any additional data fields that are requested
             if 'AMBT' in self.kml_fields:
                 trk.extendeddata.schemadata.newgxsimplearraydata('a_temp', kml_a_temp)
             if 'TOPT' in self.kml_fields:
@@ -627,9 +648,9 @@ class Dbi3LogConversion:
                             else:
                                 top_temp = min_toptF if tempIsF else min_toptC
                             sog = float(logvars['SOG'])
-                            sog = conv_M_to_mi(sog * 60 * 60) if spdIsMph else sog
+                            sog = round(conv_M_to_mi(sog * 60 * 60) if spdIsMph else sog, 1)
                             roc = float(logvars['ROC'])
-                            roc = conv_M_to_ft(roc * 60) if varioIsFpm else roc
+                            roc = round(conv_M_to_ft(roc * 60) if varioIsFpm else roc, 1)
                             brdt = float(logvars['BRDT'])
                             brdt = conv_C_to_F(brdt) if tempIsF else brdt
                             # Finished a valid data record, capture the first time as kml_start,

@@ -93,12 +93,18 @@ def EditKmlConfig(cfg_path):
             data = json.load(conf_file)
 
     KmlConfig = [
+        ConfigSpec('track_note' ,'track_note', None, text_check, False,
+                   'Single line text added to track properties block (e.g. passenger names)'),
         ConfigSpec('trim_start_time' ,'trim_start_time', None, time_check, False, 'Ignore DBI3 data until YYYYMMDDhhmmss'),
         ConfigSpec('trim_end_time' ,'trim_end_time', None, time_check, False, 'Ignore DBI3 data after YYYYMMDDhhmmss'),
-        ConfigSpec('altitudemode' ,'altitudemode', None, alt_mode_check, False, 'Google Earth altitude display = absolute, clampToGround, relativeToGround'),
-        ConfigSpec('altitude_offset' ,'altitude_offset', None, float_check, False, 'floating point offset to the DBI3 reported altitude'),
-        ConfigSpec('extend_to_ground' ,'extend_to_ground', True, true_false, False, 'Should Google Earth extend tracks to the ground? T/F'),
-        ConfigSpec('kml_use_metric' ,'kml_use_metric', False, true_false, False, 'Use metric instead of english measure for extra data? T/F'),
+        ConfigSpec('altitudemode' ,'altitudemode', None, alt_mode_check, False,
+                   'Google Earth altitude display = absolute, clampToGround, relativeToGround'),
+        ConfigSpec('altitude_offset' ,'altitude_offset', None, float_check, False,
+                   'floating point offset in meters to the DBI3 reported altitude'),
+        ConfigSpec('extend_to_ground' ,'extend_to_ground', True, true_false, False,
+                   'Should Google Earth extend tracks to the ground? T/F'),
+        ConfigSpec('kml_use_metric' ,'kml_use_metric', False, true_false, False,
+                   'Use metric instead of english measure for extra data? T/F'),
         ConfigSpec('kml_fields', 'kml_fields', ','.join(dbi_def_log_fields), fields_check, False,
                    'Google Earth extra data fields, available (ALL,{})'.format(','.join(dbi_all_log_fields)))
     ]
@@ -176,6 +182,10 @@ def UpdateConfig(cfg_path, Config, data):
 #
 # Configuration file field validation methods follow
 #
+def text_check(param_name, line):
+    """text_check input validation is a nop for now"""
+    return line
+
 def int_check(param_name, var):
     try:
         return int(var)
@@ -487,11 +497,10 @@ class Dbi3LogListCommands(cmd.Cmd):
     global CLI_age_limit
     global CLI_skip_invalid
     prompt = '(DBI3:Logs) '
-    down_load = None
-    my_list = []  # this contains our selection flag and the Log list element
 
     def preloop(self):
         self.down_load = DBI3LogDownload(log_path, com_port, verbose, age_limit=CLI_age_limit, valid_only=CLI_skip_invalid)
+        self.my_list = []  # this contains our selection flag and the Log list element
         self.do_refresh('')
         self.prompt = '(DBI3:Logs:' + self.down_load.dbi3_sn + ') '
         self.do_help('')
@@ -591,14 +600,14 @@ class Dbi3LogListCommands(cmd.Cmd):
 
 class Dbi3KmlConversionCommands(cmd.Cmd):
     prompt = '(DBI3:KML) '
-    conv_list = None
-    my_list = []
 
     def __init__(self, dbi_sn):
         cmd.Cmd.__init__(self)
         self.prompt = '(DBI3:KML:{}) '.format(dbi_sn)
         self.sn_log_path = os.path.join(log_path, dbi_sn)
         self.dbi3_sn = dbi_sn
+        self.conv_list = None
+        self.my_list = []
 
     def preloop(self):
         self.conv_list = Dbi3KmlList(self.sn_log_path, self.dbi3_sn, kml_path, age_limit=CLI_age_limit, verbose=verbose)
@@ -705,8 +714,16 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
 def process_select_range(line, my_list):
     """Given selection string, process the list to update the select flag
 
-    my_list is a list of lists.  It ccntains the T/F select flag and the dictionary of the actual data
+    my_list is a list of lists.  It contains the T/F select flag and the dictionary of the actual data
     row.  One of the row elements must be named "new_file" to be used for "new" selection.
+
+    The selection string can be one or more comma separated specifiers:
+      all
+      none
+      N
+      -N
+      N-N
+      -N-N
     
     :param str line: String containing one or more comma separated selection specs
     :param list my_list: list of rows, each row is a list of two elements, select=T/F and dictionary
@@ -729,25 +746,34 @@ def process_select_range(line, my_list):
                     le[0] = sel
                 else:
                     le[0] = le[1].new_file
-            continue
+            continue  # Done with this select specifier
+
         # not a full sweep so check for specific numbers
         # Leading '-' indicates this is a deselect
         # TODO collect all indicies before changing anything
         if line[0] == '-':
-            line = line[1:]
+            sel_spec = line[1:]
             sel = False
         else:
+            sel_spec = line
             sel = True
-        sel_spec = line
-        sel_spec = sel_spec.strip()
+        # now process for N or N-N
         rng_spec = sel_spec.split('-')
         if rng_spec[0] == '':
-            print "ERROR: bad range specification {}".format(sel_spec)
-        beg_idx = int(rng_spec[0])
+            print "ERROR: invalid select specifier {}".format(sel_spec)
+        try:
+            beg_idx = int(rng_spec[0])
+        except ValueError:
+            print 'ERROR: invalid select specifier {}'.format(line)
+            return
         if len(rng_spec) == 1:
             end_idx = beg_idx + 1
         else:
-            end_idx = int(rng_spec[1]) + 1
+            try:
+                end_idx = int(rng_spec[1]) + 1
+            except ValueError:
+                print 'ERROR: invalid select specifier {}'.format(line)
+                return
         if beg_idx < 0 or beg_idx >= len(my_list) or end_idx <= beg_idx or end_idx > len(my_list):
             print 'ERROR: valid select index range is 0 through {}'.format(len(my_list) - 1)
             return
