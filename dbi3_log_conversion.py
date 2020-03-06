@@ -3,6 +3,7 @@
 """Program to convert DBI3 log files to KML"""
 
 # TODO: Add green pushpin at the start GPS, red pushpin at the end GPS
+from __future__ import print_function
 import os
 import json
 from datetime import datetime
@@ -11,8 +12,12 @@ from simplekml import Kml, Snippet, Types
 import math
 import re
 
-from dbi3_common import ConversionList, SummaryList, utc, dbi_def_log_fields
-from dbi3_log_downloads import DBI3LogDownload
+try:
+    from dbi3_common import ConversionList, SummaryList, utc, dbi_def_log_fields
+    from dbi3_log_downloads import DBI3LogDownload
+except ImportError:
+    from .dbi3_common import ConversionList, SummaryList, utc, dbi_def_log_fields
+    from .dbi3_log_downloads import DBI3LogDownload
 
 two_seconds = timedelta(seconds=2)  # time increment between data records
 kml_line_color = 'ff0000ff'  # hex aabbggrr
@@ -173,11 +178,11 @@ class Dbi3LogConversion:
                         var, val = p.split("=")  # type: (str, str)
                         logvars[var] = val
                 except Exception as e:
-                    print 'Exception parsing line {} is: {}'.format(line, e)
+                    print('Exception parsing line {} is: {}'.format(line, e))
                     bad_recs += 1
                     continue
 
-                if 'DATE' in logvars.keys():
+                if 'DATE' in list(logvars.keys()):
                     # datetime from a start or end line
                     log_datetime = datetime.strptime(logvars['DATE'] + ' ' + logvars['TIME'], '%Y-%m-%d %H:%M:%S')
                 else:
@@ -186,7 +191,7 @@ class Dbi3LogConversion:
                 if log_state == 1:  # Expecting the start line from the log file
                     missing_key = self.__field_check(start_fields, logvars)
                     if missing_key is not None:
-                        print 'Start record missing field ' + missing_key
+                        print('Start record missing field ' + missing_key)
                         break
                     start_datetime = log_datetime
                     rec_time = log_datetime  # first data record timestamp is start
@@ -209,7 +214,7 @@ class Dbi3LogConversion:
                         if kml_end is not None:
                             proc_log += ' --Last GPS record ' + kml_end.isoformat(' ')
                     else:
-                        print 'End record missing field ' + missing_key
+                        print('End record missing field ' + missing_key)
                     break
                 else:
                     # This should be a DATA record
@@ -230,14 +235,14 @@ class Dbi3LogConversion:
                             dat_recs += 1
                             if csv_file is not None:
                                 if not header_line:
-                                    print >> csv_file, 'utc_d,utc_t,alt,lat,lon,head,speed,temp'
+                                    print('utc_d,utc_t,alt,lat,lon,head,speed,temp', file=csv_file)
                                     header_line = True
-                                print >> csv_file, rec_time.strftime('%Y/%m/%d,%H:%M:%S,') + logvars['ALT'] + \
+                                print(rec_time.strftime('%Y/%m/%d,%H:%M:%S,') + logvars['ALT'] + \
                                                    ',' + logvars['LAT'] + ',' + logvars['LONG'] + \
                                                    ',' + logvars['COG'] + ',' + logvars['SOG'] + \
-                                                   ',' + logvars['AMBT']
+                                                   ',' + logvars['AMBT'], file=csv_file)
                             if debug:
-                                print 'Record ' + rec_time.isoformat('T') + ' ' + logvars['LAT'] + ' ' + logvars['LONG']
+                                print('Record ' + rec_time.isoformat('T') + ' ' + logvars['LAT'] + ' ' + logvars['LONG'])
 
                             # calculate and accumulate KML data
                             kml_lat = self.__ddmm2d(logvars['LAT'])
@@ -316,7 +321,7 @@ class Dbi3LogConversion:
                                 kml_start_lon = kml_lon
                             kml_end = rec_time
                     else:
-                        print 'Data record missing field ' + missing_key
+                        print('Data record missing field ' + missing_key)
                         bad_recs += 1
                     # Do we increment the time before or after the data records?
                     rec_time += two_seconds
@@ -547,11 +552,11 @@ class Dbi3LogConversion:
                         var, val = p.split("=")  # type: (str, str)
                         logvars[var] = val
                 except Exception as e:
-                    print 'Exception parsing line {} is: {}'.format(line, e)
+                    print('Exception parsing line {} is: {}'.format(line, e))
                     bad_recs += 1
                     continue
 
-                if 'DATE' in logvars.keys():
+                if 'DATE' in list(logvars.keys()):
                     # datetime from a start or end line
                     log_datetime = datetime.strptime(logvars['DATE'] + ' ' + logvars['TIME'], '%Y-%m-%d %H:%M:%S')
                 else:
@@ -560,7 +565,7 @@ class Dbi3LogConversion:
                 if log_state == 1:  # Expecting the start line from the log file
                     missing_key = self.__field_check(start_fields, logvars)
                     if missing_key is not None:
-                        print 'Start record missing field ' + missing_key
+                        print('Start record missing field ' + missing_key)
                         break
                     start_datetime = log_datetime
                     rec_time = log_datetime  # first data record timestamp is start
@@ -580,7 +585,7 @@ class Dbi3LogConversion:
                         proc_log += '\n  End time ' + end_datetime.isoformat('T') + ' Rec time ' + \
                             rec_time.isoformat('T')
                     else:
-                        print 'End record missing field ' + missing_key
+                        print('End record missing field ' + missing_key)
                     break
                 else:
                     # This should be a DATA record
@@ -602,7 +607,7 @@ class Dbi3LogConversion:
 
                             dat_recs += 1
                             if debug:
-                                print 'Record ' + rec_time.isoformat('T') + ' ' + logvars['LAT'] + ' ' + logvars['LONG']
+                                print('Record ' + rec_time.isoformat('T') + ' ' + logvars['LAT'] + ' ' + logvars['LONG'])
 
                             # calculate and accumulate KML data
                             kml_lat = self.__ddmm2d(logvars['LAT'])
@@ -659,7 +664,7 @@ class Dbi3LogConversion:
                                 kml_start = rec_time
                             kml_end = rec_time
                     else:
-                        print 'Data record missing field ' + missing_key
+                        print('Data record missing field ' + missing_key)
                         bad_recs += 1
                     # Do we increment the time before or after the data records?
                     rec_time += two_seconds
@@ -798,11 +803,11 @@ class Dbi3KmlList:
                 dt = datetime.strptime(item, "%Y%m%d_%H%M_{}.kml".format(dbi3_sn))
             except ValueError as e:
                 if self.debug:
-                    print('Parse error of {}:{}'.format(item, e.message))
+                    print(('Parse error of {}:{}'.format(item, e.message)))
             if dt is not None:
                 self.new_limit = dt.replace(tzinfo=utc) + timedelta(minutes=1)  # make new_limit timezone aware
                 if self.verbose:
-                    print 'DBI3 new KML file threshold: {}'.format(self.new_limit)
+                    print('DBI3 new KML file threshold: {}'.format(self.new_limit))
                 break
 
     def refresh_list(self, new_logs_only=False):

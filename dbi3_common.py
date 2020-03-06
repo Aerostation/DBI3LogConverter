@@ -6,7 +6,7 @@ DBI3 common definitions/declarations
 import collections
 try:
     from datetime import timezone
-    utc = timezone.utc()
+    utc = timezone.utc
 except ImportError:
     """Python 2 doesn't have timezone module, define here."""
     from datetime import tzinfo, timedelta
