@@ -21,7 +21,7 @@ from dbi3_log_conversion import *
 from dbi3_log_downloads import *
 from dbi3_common import utc, dbi_all_log_fields, dbi_def_log_fields
 
-__version__ = '0.2.alpaha'
+__version__ = '0.3.alpaha'
 
 dbi_conf = os.path.join(os.path.expanduser('~'), '.DBI3config')  # hidden DBI3 config filename
 DEF_LOG_PATH = os.path.join(os.path.expanduser('~'), 'Documents', 'DBI3logs')
@@ -93,12 +93,18 @@ def EditKmlConfig(cfg_path):
             data = json.load(conf_file)
 
     KmlConfig = [
+        ConfigSpec('track_note' ,'track_note', None, text_check, False,
+                   'Single line text added to track properties block (e.g. passenger names)'),
         ConfigSpec('trim_start_time' ,'trim_start_time', None, time_check, False, 'Ignore DBI3 data until YYYYMMDDhhmmss'),
         ConfigSpec('trim_end_time' ,'trim_end_time', None, time_check, False, 'Ignore DBI3 data after YYYYMMDDhhmmss'),
-        ConfigSpec('altitudemode' ,'altitudemode', None, alt_mode_check, False, 'Google Earth altitude display = absolute, clampToGround, relativeToGround'),
-        ConfigSpec('altitude_offset' ,'altitude_offset', None, float_check, False, 'floating point offset to the DBI3 reported altitude'),
-        ConfigSpec('extend_to_ground' ,'extend_to_ground', True, true_false, False, 'Should Google Earth extend tracks to the ground? T/F'),
-        ConfigSpec('kml_use_metric' ,'kml_use_metric', False, true_false, False, 'Use metric instead of english measure for extra data? T/F'),
+        ConfigSpec('altitudemode' ,'altitudemode', None, alt_mode_check, False,
+                   'Google Earth altitude display = absolute, clampToGround, relativeToGround'),
+        ConfigSpec('altitude_offset' ,'altitude_offset', None, float_check, False,
+                   'floating point offset in meters to the DBI3 reported altitude'),
+        ConfigSpec('extend_to_ground' ,'extend_to_ground', True, true_false, False,
+                   'Should Google Earth extend tracks to the ground? T/F'),
+        ConfigSpec('kml_use_metric' ,'kml_use_metric', False, true_false, False,
+                   'Use metric instead of english measure for extra data? T/F'),
         ConfigSpec('kml_fields', 'kml_fields', ','.join(dbi_def_log_fields), fields_check, False,
                    'Google Earth extra data fields, available (ALL,{})'.format(','.join(dbi_all_log_fields)))
     ]
@@ -176,6 +182,10 @@ def UpdateConfig(cfg_path, Config, data):
 #
 # Configuration file field validation methods follow
 #
+def text_check(param_name, line):
+    """text_check input validation is a nop for now"""
+    return line
+
 def int_check(param_name, var):
     try:
         return int(var)
@@ -283,19 +293,19 @@ def convert_new_logs(dbi3_sn, sn_log_path, kml_path):
                                          verbose=verbose)
         rtn, rtn_str = dbi3_obj.kml_convert(le.kml_filename)
         if rtn < 0:
-            print 'Convert FAILED {}  new:{}  tweak:{}   to {}\n{}'.format(le.log_name,
+            print 'Convert FAILED {}  new:{}  edits:{}   to {}\n{}'.format(le.log_name,
                                                                            'Y' if le.new_file else 'N',
                                                                            le.override,
                                                                            le.kml_name,
                                                                            rtn_str)
         elif rtn > 0 and verbose:
             # not converted warning (probably no GPS data)
-            print 'Convert {}  new:{}  tweak:{}\n{}'.format(le.log_name,
+            print 'Convert {}  new:{}  edits:{}\n{}'.format(le.log_name,
                                                             'Y' if le.new_file else 'N',
                                                             le.override,
                                                             rtn_str)
         elif rtn == 0:
-            print 'Converted {}  new:{}  tweak:{}\n{}'.format(le.log_name,
+            print 'Converted {}  new:{}  edits:{}\n{}'.format(le.log_name,
                                                               'Y' if le.new_file else 'N',
                                                               le.override,
                                                               rtn_str)
@@ -358,7 +368,7 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
         'The Log menu connects to the DBI3 and allows download, conversion, and\n'\
         ' deletion from the DBI3 instrument.\n'\
         'The KML menu allows conversion of logs previously downloaded from the DBI3\n'\
-        ' (the DBI3 does not need to be connected).  KML also allows tweaks to be set\n'\
+        ' (the DBI3 does not need to be connected).  KML also allows edits to be set\n'\
         ' for each individual log to trim excess records from the start or end, correct\n'\
         ' altimeter offset, select Google Earth altitude mode and extend_to_ground settings.\n'
 
@@ -432,17 +442,17 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
         print 'This reduces the number of logs presented in the lists to a managable number'
         print 'but can be opened up to display everything during log cleanup.'
 
-    def do_Logs(self, line):
+    def do_logs(self, line):
         """Read and select logs for download/delete."""
         try:
             Dbi3LogListCommands().cmdloop()
         except IOError as e:
             print 'Can not access DBI3: {}'.format(e)
 
-    def do_KML(self, line):
+    def do_kml(self, line):
         """Select and convert logs to KML.
-        Logs are kept in an SN specific subdirectory. If only 1 exists we
-        automatically select it.  Else prompt for a specific SN to process.
+        Logs are kept in an SN specific subdirectory. If only 1 SN exists we
+        automatically select it, else prompt for a specific SN to process.
         """
         global CLI_sn_list
         CLI_sn_list = []
@@ -487,11 +497,10 @@ class Dbi3LogListCommands(cmd.Cmd):
     global CLI_age_limit
     global CLI_skip_invalid
     prompt = '(DBI3:Logs) '
-    down_load = None
-    my_list = []  # this contains our selection flag and the Log list element
 
     def preloop(self):
         self.down_load = DBI3LogDownload(log_path, com_port, verbose, age_limit=CLI_age_limit, valid_only=CLI_skip_invalid)
+        self.my_list = []  # this contains our selection flag and the Log list element
         self.do_refresh('')
         self.prompt = '(DBI3:Logs:' + self.down_load.dbi3_sn + ') '
         self.do_help('')
@@ -549,7 +558,7 @@ class Dbi3LogListCommands(cmd.Cmd):
             if le[0]:  # list row is marked as selected
                 self.down_load.get_DBI3_log(le[1].name_start)
                 p_path = os.path.join(log_path, self.down_load.dbi3_sn)
-                kml_name = le[1].start_dt.strftime('%Y%m%d_%H%M_{}.kml'.format(self.down_load.dbi3_sn))
+                kml_name = le[1].start_dt.strftime('%Y%m%d_%H%M_{}'.format(self.down_load.dbi3_sn))
                 dbi3_obj = Dbi3LogConversion(os.path.join(p_path, le[1].log_name),
                                              sn=self.down_load.dbi3_sn,
                                              kml_use_metric=kml_use_metric,
@@ -557,7 +566,7 @@ class Dbi3LogListCommands(cmd.Cmd):
                                              altitudemode=altitudemode,
                                              extend_to_ground=extend_to_ground,
                                              verbose=verbose)
-                rtn, rtn_str = dbi3_obj.kml_convert(kml_name)
+                rtn, rtn_str = dbi3_obj.kml_convert(os.path.join(kml_path, kml_name))
                 if rtn < 0:
                     print 'Convert {} to {} FAILED: {}'.format(le[1].log_name, kml_name, rtn_str)
                 elif rtn > 0 and verbose:
@@ -571,7 +580,8 @@ class Dbi3LogListCommands(cmd.Cmd):
         deleted_log = False
         for le in self.my_list:
             if le[0]:  # list row is marked as selected
-                new_val = raw_input('Are you sure you want to delete {} {}? '.format(le[1].name_start, le[1].log_name))
+                new_val = raw_input('This will delete {} {} from the DBI3.\nAre you sure you want to continue? '.
+                                    format(le[1].name_start, le[1].log_name))
                 if new_val.startswith('y'):
                     self.down_load.delete_DBI3_log(le[1].name_start)
                     deleted_log = True
@@ -590,14 +600,14 @@ class Dbi3LogListCommands(cmd.Cmd):
 
 class Dbi3KmlConversionCommands(cmd.Cmd):
     prompt = '(DBI3:KML) '
-    conv_list = None
-    my_list = []
 
     def __init__(self, dbi_sn):
         cmd.Cmd.__init__(self)
         self.prompt = '(DBI3:KML:{}) '.format(dbi_sn)
         self.sn_log_path = os.path.join(log_path, dbi_sn)
         self.dbi3_sn = dbi_sn
+        self.conv_list = None
+        self.my_list = []
 
     def preloop(self):
         self.conv_list = Dbi3KmlList(self.sn_log_path, self.dbi3_sn, kml_path, age_limit=CLI_age_limit, verbose=verbose)
@@ -637,7 +647,7 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
         for i, le in enumerate(self.my_list):
             if only_sel and not le[0]:
                 continue
-            print "{:2d} {} {}{}  tweak:{}  rcrds:{}  duration:{}".format(i,
+            print "{:2d} {} {}{}  edits:{}  rcrds:{:4d}  duration:{}".format(i,
                                                          '*' if le[0] else ' ',
                                                          le[1].log_name,
                                                            '(new)' if le[1].new_file else '     ',
@@ -663,7 +673,7 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
         print '  If you prefix a number,ranges with "-" it becomes a deselect'
 
     def do_edit(self, line):
-        """Override KML conversion for a specific log."""
+        """Override KML conversion for a specific log.  Requires a line number from the list for the specific log."""
         try:
             idx = int(line)
             le = self.my_list[idx]
@@ -697,15 +707,23 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
         return True
 
     def do_exit(self, line):
-        """exint back to Main menu"""
+        """exit back to Main menu"""
         return True
 
 
 def process_select_range(line, my_list):
     """Given selection string, process the list to update the select flag
 
-    my_list is a list of lists.  It ccntains the T/F select flag and the dictionary of the actual data
+    my_list is a list of lists.  It contains the T/F select flag and the dictionary of the actual data
     row.  One of the row elements must be named "new_file" to be used for "new" selection.
+
+    The selection string can be one or more comma separated specifiers:
+      all
+      none
+      N
+      -N
+      N-N
+      -N-N
     
     :param str line: String containing one or more comma separated selection specs
     :param list my_list: list of rows, each row is a list of two elements, select=T/F and dictionary
@@ -728,25 +746,34 @@ def process_select_range(line, my_list):
                     le[0] = sel
                 else:
                     le[0] = le[1].new_file
-            continue
+            continue  # Done with this select specifier
+
         # not a full sweep so check for specific numbers
         # Leading '-' indicates this is a deselect
         # TODO collect all indicies before changing anything
         if line[0] == '-':
-            line = line[1:]
+            sel_spec = line[1:]
             sel = False
         else:
+            sel_spec = line
             sel = True
-        sel_spec = line
-        sel_spec = sel_spec.strip()
+        # now process for N or N-N
         rng_spec = sel_spec.split('-')
         if rng_spec[0] == '':
-            print "ERROR: bad range specification {}".format(sel_spec)
-        beg_idx = int(rng_spec[0])
+            print "ERROR: invalid select specifier {}".format(sel_spec)
+        try:
+            beg_idx = int(rng_spec[0])
+        except ValueError:
+            print 'ERROR: invalid select specifier {}'.format(line)
+            return
         if len(rng_spec) == 1:
             end_idx = beg_idx + 1
         else:
-            end_idx = int(rng_spec[1]) + 1
+            try:
+                end_idx = int(rng_spec[1]) + 1
+            except ValueError:
+                print 'ERROR: invalid select specifier {}'.format(line)
+                return
         if beg_idx < 0 or beg_idx >= len(my_list) or end_idx <= beg_idx or end_idx > len(my_list):
             print 'ERROR: valid select index range is 0 through {}'.format(len(my_list) - 1)
             return
