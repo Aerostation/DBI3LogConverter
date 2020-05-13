@@ -64,7 +64,7 @@ def EditConfig(cfg_path):
 log_path and kml_path must be properly configured before
   the application can run.  Changing the paths will not move
   any existing files.
-com_port can be left as default (None) and log download
+com_port can be left as default (None) and logs download
   will attempt to find the correct port.
 Other parameters can be left as default.
 ''')
@@ -373,14 +373,14 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
     prompt = '(DBI3) '
     my_header = \
         'This is the top level menu of the DBI3 Log Download/Convert application.\n\n' \
-        'This level allow configuration of the overall application and defaults used\n' \
-        ' to create KML output files.\n'\
-        'The Log menu connects to the DBI3 and allows download, conversion, and\n'\
-        ' deletion from the DBI3 instrument.\n'\
-        'The KML menu allows conversion of logs previously downloaded from the DBI3\n'\
-        ' (the DBI3 does not need to be connected).  KML also allows edits to be set\n'\
-        ' for each individual log to trim excess records from the start or end, correct\n'\
-        ' altimeter offset, select Google Earth altitude mode and extend_to_ground settings.\n'
+        '* This level allow configuration of the overall application and defaults used\n' \
+        '  to create KML output files.\n'\
+        '* The "logs" menu connects to the DBI3 and allows download, conversion, and\n'\
+        '  deletion from the DBI3 instrument.\n'\
+        '* The "kml" menu allows conversion of logs previously downloaded from the DBI3\n'\
+        '  (the DBI3 does not need to be connected).  KML also allows edits to be set\n'\
+        '  for each individual log to trim excess records from the start or end, correct\n'\
+        '  altimeter offset, select Google Earth altitude mode and extend_to_ground settings.\n'
 
     def preloop(self):
         self.do_doc('')
@@ -441,19 +441,19 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
     def help_filter(self):
         print('Filter out the display of logs in the Logs and KML lists.')
         print('')
-        print(' filter options - all|new|old|valid|invalid|DD[,...}  where DD=age_limit in days.')
-        print('  all - turn off all filters, display all logs.')
-        print('  new - only display logs newer than the currently latest log/KML file.')
-        print('  old - reverses the new filter.')
-        print('  valid - does not display logs that are invalid (have no GPS data).')
-        print('  invalid - reverses the valid filter.')
-        print('  # - does not display logs older than # days, zero clears this limit.')
+        print(' filter options - all|new|old|valid|invalid|#[,...}  where #=age_limit in days.')
+        print('   all - turn off all filters, display all logs.')
+        print('   new - only display logs newer than the currently latest log/KML file.')
+        print('   old - reverses the new filter.')
+        print('   valid - does not display logs that are invalid (have no GPS data).')
+        print('   invalid - reverses the valid filter.')
+        print('   # - does not display logs older than # days, zero clears this limit.')
         print('')
-        print('This reduces the number of logs presented in the lists to a managable number')
+        print('Filter reduces the number of logs presented in the lists to a managable number')
         print('but can be opened up to display everything during log cleanup.')
 
     def do_logs(self, line):
-        """Read and select logs for download/delete."""
+        """Read log directory from DBI3. Select logs for download/delete."""
         try:
             Dbi3LogListCommands().cmdloop()
         except IOError as e:
@@ -527,7 +527,10 @@ class Dbi3LogListCommands(cmd.Cmd):
             self.my_list.append([le.new_file, le])
 
     def do_list(self, line):
-        """Display the DBI3 logs available for download. "list selected" limits list to only selected logs."""
+        """Display the DBI3 logs available for download.
+Selected logs are marked with "*" after the line number.
+"list selected" limits list to only selected logs.
+"""
         print('\nCURRENT LOG FILTER: ' + filter_text())
         only_sel = line == 'selected'
         for i, le in enumerate(self.my_list):
@@ -641,7 +644,7 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
                                          altitudemode=altitudemode,
                                          extend_to_ground=extend_to_ground,
                                          verbose=verbose)
-            log_stats = dbi3_obj.kml_summary()
+            log_stats = dbi3_obj.kml_convert(base_name=None)
             if CLI_skip_invalid:
                 if log_stats.status <= 0:
                     continue
@@ -650,14 +653,17 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
             self.my_list.append([le.new_file, le, log_stats])
 
     def do_list(self, line):
-        """Display the DBI3 logs available for KML conversion. "list selected" limits list to only the selected logs."""
+        """Display the DBI3 logs available for KML conversion.
+Selected logs are marked with "*" after the line number.
+"list selected" limits list to only the selected logs.
+"""
         # Create and display a filter status line based on the settings
         print('\nCURRENT LOG FILTER: ' + filter_text())
         only_sel = line == 'selected'
         for i, le in enumerate(self.my_list):
             if only_sel and not le[0]:
                 continue
-            print("{:2d} {} {}{}  edits:{}  rcrds:{:4d}  duration:{}".format(i,
+            print("{:3d} {} {}{}  edits:{}  rcrds:{:5d}  duration:{}".format(i,
                                                          '*' if le[0] else ' ',
                                                          le[1].log_name,
                                                            '(new)' if le[1].new_file else '     ',
@@ -862,8 +868,12 @@ if __name__ == "__main__":
 
     ap_description = """
 Download and/or convert DBI3 log file(s) to KML format.  The 
-application defaults to interactive mode.  --sync is automatic mode to download 
-new logs (newer than any existing log) and automatically converting to KML.
+application defaults to interactive mode to select and convert specific logs.
+  --sync is automatic mode to download 
+new logs (newer than any existing log) and automatically converting to KML.  The
+log_path and kml_path default to ~/Documents/DBI3logs and ~/Documents/DBI3logs/kml.
+To override the default, the initial DBI3cli execution must be without --sync and
+edit config.
 """
     ap_epilog = """
 The LOG output is directed to a log_path subdirectory "SNxxxxx/" for the DBI3 serial number.  The name

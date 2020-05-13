@@ -1,10 +1,10 @@
 #!/usr/bin/python
 # vim: set sw=4 st=4 ai expandtab:
 """
-DBI3 log names appear to be timestamps that are RAD26 encoded using 7 uppercase A-Z characters.
+DBI3 log names are the encoded start and end times of the log.
 
-DBI3 log list consists of 2 7-character strings representing the start and stop time.
-The 7 character string are RAD26 encoded using 7 uppercase A-Z characters.
+DBI3 log list consists of 2 7-character strings representing the start and end time.
+The 7 character strings are 32 bit integers, RAD26 encoded using uppercase A-Z characters.
 The resulting numbers are in DOS FAT timestamp encoded format.
 
 2 Bytes - Date
@@ -21,9 +21,10 @@ Bits    Description
 
 The original DigiTool download application created filenames of the form YYYY_MM_DD_HH_MM_SS.log.
 This format is retained, but the files are stored in a subdirectory of the form ./SN12345/ based on the
-serial number of the DBI3
+serial number of the DBI3 as read from the serial cli.  Firmware v1.2 log files contain a dummy SN
+in the start line.
 
-Some DBI3 cli commands don't produce an EOF indication (fs list, fs read).  Add an immediate 'md mach'
+Some DBI3 serial cli commands don't produce an EOF indication (fs list, fs read).  Add an immediate 'md mach'
 after the command and use the 'md mach' 'ok/nok' response as the command EOF.
 """
 import os
@@ -63,16 +64,7 @@ class DBI3LogDownload:
     RESP_NOK = ['nok']
     RESP_ANY = ['ok', 'nok']
 
-    log_path = None
-    com_port = None
-    age_limit = None  # to reduce clutter, we can set an optional age limit, older DBI3 logs are ignored
-    new_limit = None
-    verbose = None
-    debug = False
-    serial_fd = None  # initialized to the serial file descriptor for the DBI3 serial comm port
-    readline_buf = None  # readline buffer to allow saving data from block reads
 
-    dbi3_sn = None  # will contain the DBI serial number when the port is opened.
 
     def __init__(self, log_path='/tmp/DBI3', com_port=None, verbose=False, age_limit=None, valid_only=False):
         """Initialize DBI3LogDownload and serial port.
@@ -83,6 +75,9 @@ class DBI3LogDownload:
         self.com_port = com_port
         self.verbose = verbose
         self.age_limit = age_limit
+        self.debug = False
+        self.serial_fd = None  # initialized to the serial file descriptor for the DBI3 serial comm port
+        self.dbi3_sn = None  # will contain the DBI serial number when the port is opened.
         self.valid_only = valid_only
 
         self.readline_buf = bytearray()  # init buffer for our block mode readline
@@ -104,7 +99,8 @@ class DBI3LogDownload:
             raise IOError("Comm port {} does not exist.".format(com_port))
         self.__initialize_dbi3_serial_port()
 
-    def __radix26_to_int(self, rad26):
+    @staticmethod
+    def __radix26_to_int(rad26):
         """ DBI3 log names are radix 26 encoded string.  Seven upper case characters
         where each character is a number from 0-26 and converts to a 32bit integer.
 
@@ -203,7 +199,7 @@ class DBI3LogDownload:
                     dt = datetime.strptime(item, "%Y_%m_%d_%H_%M_%S.log")
                 except ValueError as e:
                     if self.debug:
-                        print(('Parse error of {}:{}'.format(item, e.message)))
+                        print('Parse error of {}:{}'.format(item, e.message))
                 if dt is not None:
                     self.new_limit = dt.replace(tzinfo=utc) + timedelta(seconds=1)  # make new_limit timezone aware
                     if self.verbose:
@@ -312,11 +308,11 @@ class DBI3LogDownload:
                 log_file = os.path.join(self.log_path, rs[4])
 
                 if os.path.isfile(log_file):
-                    fileExists = True
+                    file_exists = True
                 else:
-                    fileExists = False
-                print('LOG-{} {}  duration {}  new_file:{}  edits:{}'.format('   ' if fileExists else 'new', rs[2],
-                                                                               rs[3] - rs[2], rs.new_file, rs.override))
+                    file_exists = False
+                print('LOG-{} {}  duration {}  new_file:{}  edits:{}'.format('   ' if file_exists else 'new', rs[2],
+                                                                             rs[3] - rs[2], rs.new_file, rs.override))
 
         return log_list
 

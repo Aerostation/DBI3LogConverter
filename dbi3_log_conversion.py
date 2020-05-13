@@ -2,7 +2,6 @@
 # vim: set sw=4 st=4 ai expandtab:
 """Program to convert DBI3 log files to KML"""
 
-# TODO: Add green pushpin at the start GPS, red pushpin at the end GPS
 from __future__ import print_function
 import os
 import json
@@ -19,25 +18,26 @@ except ImportError:
     from .dbi3_common import ConversionList, SummaryList, utc, dbi_def_log_fields
     from .dbi3_log_downloads import DBI3LogDownload
 
-two_seconds = timedelta(seconds=2)  # time increment between data records
-kml_line_color = 'ff0000ff'  # hex aabbggrr
-kml_start_color = 'ff00ff00'
-kml_end_color = 'ff0000ff'
+TWO_SECONDS = timedelta(seconds=2)  # time increment between data records
+KML_LINE_COLOR = 'ff0000ff'  # hex aabbggrr
+KML_START_COLOR = 'ff00ff00'
+KML_END_COLOR = 'ff0000ff'
 
 # Required start record, data record, and end record fields - to validate log record content
-start_fields = ['FWVER', 'SN', 'DATE', 'TIME']
-data_fields = ['ALT', 'ROC', 'AMBT', 'GPSS', 'SOG', 'COG', 'LONG', 'LAT', 'TOPTS', 'TOPT', 'BATM', 'BRDT']
-end_fields = ['DATE', 'TIME']
+START_FIELDS = ['FWVER', 'SN', 'DATE', 'TIME']
+DATA_FIELDS = ['ALT', 'ROC', 'AMBT', 'GPSS', 'SOG', 'COG', 'LONG', 'LAT', 'TOPTS', 'TOPT', 'BATM', 'BRDT']
+END_FIELDS = ['DATE', 'TIME']
+
 
 class Dbi3LogConversion:
-    config_attr = ["altitudemode",
-                   "altitude_offset",
-                   "extend_to_ground",
-                   "kml_use_metric",
-                   "kml_fields",
-                   "trim_start_time",
-                   "trim_end_time",
-                   "track_note"]
+    METADATA_CONFIG_ATTR = ["altitudemode",
+                            "altitude_offset",
+                            "extend_to_ground",
+                            "kml_use_metric",
+                            "kml_fields",
+                            "trim_start_time",
+                            "trim_end_time",
+                            "track_note"]
 
     def __init__(self, filename, sn=None,
                  altitudemode=None, altitude_offset=None,
@@ -61,6 +61,7 @@ class Dbi3LogConversion:
         self.extend_to_ground = True
         self.kml_fields = dbi_def_log_fields
         self.kml_use_metric = False
+        self.prefer_msl = True  # True=prefer GPS altitude if available
         self.verbose = False
         self.trim_start_time = None
         self.trim_end_time = None
@@ -83,7 +84,7 @@ class Dbi3LogConversion:
             # This log file has persisted meta data, get the config options
             with open(self.log_meta, 'r') as meta:
                 data = json.load(meta)
-            for fld in self.config_attr:
+            for fld in self.METADATA_CONFIG_ATTR:
                 if fld in data:
                     setattr(self, fld, data[fld])
             # the trim fields need to be converted to datetime.
@@ -94,6 +95,9 @@ class Dbi3LogConversion:
 
     def kml_convert(self, base_name):
         """Function to read and convert a DBI3 log file to KML format
+
+        If called with base_name=None, parse the log file but return a SummaryList with
+        parse status and skip the actual KML creation.
 
         Args:
             base_name: Base path and filename for output - add extension
@@ -109,40 +113,43 @@ class Dbi3LogConversion:
         # Determine unit conversion for additional data fields
         # Allow additional data fields to be english or metric
         if not self.kml_use_metric:
-            tempIsF = True     # False=centegrade
-            altIsFt = True     # False=meters
-            spdIsMph = True    # False=kph
-            varioIsFpm = True  # False=meters per second
+            temp_is_f = True     # False=centegrade
+            alt_is_ft = True     # False=meters
+            spd_is_mph = True    # False=kph
+            roc_is_fps = True    # False=meters per second
         else:
-            tempIsF = False
-            varioIsFpm = False
-            spdIsMph = False
-            altIsFt = False
+            temp_is_f = False
+            roc_is_fps = False
+            spd_is_mph = False
+            alt_is_ft = False
 
         debug = False
 
         log_state = 1  # 1=expecting start line, 2=records
-        header_line = False
-        tot_recs = 0
-        dat_recs = 0
+        csv_header_was_output = False
+        total_log_recs = 0
+        data_recs = 0
         trim_recs = 0
         bad_recs = 0
-        # Monitor min/max track data to calculate a bounding box
+        # Monitor min/max track data to calculate a bounding box for view
         min_lon = 180.0
         max_lon = -180.0
         min_lat = 90.0
         max_lat = -90.0
-        min_toptF = 100.0  # when TOPT is missing, we display this default data
-        min_toptC = 40.0  # - or this
+        MISSING_TOPT_F = 100.0  # when TOPT is missing, we display this default data
+        MISSING_TOPT_C = 40.0  # - or this
+
+        # After fw ver 1.2, the log added GPS Altitude.  If we find it set this true.
+        has_msl = None
 
         # "Trip Computer" fields.  Summary fields of a given track.
         elapsed_dist = 0.0  # summation of Meters between pairs of points
         max_sog = None  # Max SOG in M/s seen
         max_computed_sog = None
-        min_altitude = None  # Max ALT in Meters
-        max_altitude = None  # Min ALT in Meters
+        min_altitude = None  # Min ALT in Meters
+        max_altitude = None  # Max ALT in Meters
 
-        kml_start_lat = None
+        kml_start_lat = None  # location for start/end pushpins
         kml_start_lon = None
         kml_end_lat = None
         kml_end_lon = None
@@ -152,6 +159,8 @@ class Dbi3LogConversion:
         kml_end = None  # datetime of the last GPS data line
         kml_when = []
         kml_coord = []
+        kml_coord_alt_gps = False
+        kml_alt = []
         kml_a_temp = []
         kml_t_temp = []
         kml_diff_t = []
@@ -169,7 +178,7 @@ class Dbi3LogConversion:
             last_lat = None
             last_lon = None
             for line in myfile:
-                tot_recs += 1
+                total_log_recs += 1
                 logvars = {}
                 try:
                     line = line.rstrip('\r\n')
@@ -189,7 +198,7 @@ class Dbi3LogConversion:
                     log_datetime = None
 
                 if log_state == 1:  # Expecting the start line from the log file
-                    missing_key = self.__field_check(start_fields, logvars)
+                    missing_key = self.__field_check(START_FIELDS, logvars)
                     if missing_key is not None:
                         print('Start record missing field ' + missing_key)
                         break
@@ -203,13 +212,13 @@ class Dbi3LogConversion:
                 elif log_state > 1 and log_datetime is not None:
                     # START record was processed, the next record with a DATE is the END record
                     end_datetime = log_datetime
-                    missing_key = self.__field_check(end_fields, logvars)
+                    missing_key = self.__field_check(END_FIELDS, logvars)
                     if missing_key is None:
                         log_state = 3
                         if kml_start is not None:
                             proc_log += ' --First GPS record ' + kml_start.isoformat(' ')
                         proc_log += '\n  Total records={}  data records={}  trim records={}  bad records={}'.\
-                            format(tot_recs, dat_recs, trim_recs, bad_recs)
+                            format(total_log_recs, data_recs, trim_recs, bad_recs)
                         proc_log += '\n  End time ' + end_datetime.isoformat(' ')
                         if kml_end is not None:
                             proc_log += ' --Last GPS record ' + kml_end.isoformat(' ')
@@ -218,7 +227,7 @@ class Dbi3LogConversion:
                     break
                 else:
                     # This should be a DATA record
-                    missing_key = self.__field_check(data_fields, logvars)
+                    missing_key = self.__field_check(DATA_FIELDS, logvars)
                     if missing_key is None:
                         if logvars['GPSS'] == '0':
                             ####
@@ -232,11 +241,17 @@ class Dbi3LogConversion:
                                 trim_recs += 1
                                 continue
 
-                            dat_recs += 1
+                            data_recs += 1
+
+                            if has_msl is None:  # determine if the data record includes GPS altitude
+                                has_msl = logvars.get('MSLALT') is not None
+                                # determine if we have and prefer GPS altitude for the track points
+                                kml_coord_alt_gps = has_msl and self.prefer_msl
+
                             if csv_file is not None:
-                                if not header_line:
+                                if not csv_header_was_output:
                                     print('utc_d,utc_t,alt,lat,lon,head,speed,temp', file=csv_file)
-                                    header_line = True
+                                    csv_header_was_output = True
                                 print(rec_time.strftime('%Y/%m/%d,%H:%M:%S,') + logvars['ALT'] + \
                                                    ',' + logvars['LAT'] + ',' + logvars['LONG'] + \
                                                    ',' + logvars['COG'] + ',' + logvars['SOG'] + \
@@ -260,7 +275,20 @@ class Dbi3LogConversion:
                             kml_when.append(rec_time.isoformat('T'))
                             altitude = float(logvars['ALT'])
                             if self.altitude_offset is not None: altitude += self.altitude_offset
-                            kml_coord.append((kml_lon, kml_lat, altitude))
+
+                            # if we have GPS altitude available, determine which we use in the coordinates
+                            if has_msl:
+                                msl_alt = float(logvars['MSLALT'])
+                                if kml_coord_alt_gps:
+                                    coord_alt = msl_alt
+                                    kml_alt.append(round(altitude if self.kml_use_metric else conv_M_to_ft(altitude), 1))
+                                else:
+                                    coord_alt = altitude
+                                    kml_alt.append(round(msl_alt if self.kml_use_metric else conv_M_to_ft(msl_alt), 1))
+                            else:
+                                coord_alt = altitude
+
+                            kml_coord.append((kml_lon, kml_lat, coord_alt))
 
                             #
                             # For trip stats, sum the total distance traveled, max speed, min/max altitude
@@ -273,10 +301,10 @@ class Dbi3LogConversion:
                                     max_computed_sog = computed_sog
                             last_lat = kml_lat  # save last lat/lon for the next time thru the loop
                             last_lon = kml_lon
-                            if max_altitude is None or altitude > max_altitude:
-                                max_altitude = altitude
-                            if min_altitude is None or altitude < min_altitude:
-                                min_altitude = altitude
+                            if max_altitude is None or coord_alt > max_altitude:
+                                max_altitude = coord_alt
+                            if min_altitude is None or coord_alt < min_altitude:
+                                min_altitude = coord_alt
                             sog = float(logvars['SOG'])
                             if max_sog is None or sog > max_sog:
                                 max_sog = sog
@@ -286,11 +314,11 @@ class Dbi3LogConversion:
 
                             # Round floating point data to a reasonable accuracy (e.g. 1 or 2 digit)
                             #
-                            amb_temp = conv_C_to_F(float(logvars['AMBT'])) if tempIsF else float(logvars['AMBT'])
+                            amb_temp = conv_C_to_F(float(logvars['AMBT'])) if temp_is_f else float(logvars['AMBT'])
                             if logvars['TOPTS'] == '1':
-                                top_temp = conv_C_to_F(float(logvars['TOPT'])) if tempIsF else float(logvars['TOPT'])
+                                top_temp = conv_C_to_F(float(logvars['TOPT'])) if temp_is_f else float(logvars['TOPT'])
                             else:
-                                top_temp = min_toptF if tempIsF else min_toptC
+                                top_temp = MISSING_TOPT_F if temp_is_f else MISSING_TOPT_C
                             if 'AMBT' in self.kml_fields:
                                 kml_a_temp.append(amb_temp)
                             if 'TOPT' in self.kml_fields:
@@ -299,19 +327,19 @@ class Dbi3LogConversion:
                                 kml_diff_t.append(top_temp - amb_temp)
                             if 'SOG' in self.kml_fields:
                                 sog = float(logvars['SOG'])
-                                sog = round(conv_M_to_mi(sog * 60 * 60) if spdIsMph else sog, 1)
+                                sog = round(conv_M_to_mi(sog * 60 * 60) if spd_is_mph else sog, 1)
                                 kml_sog.append(sog)
                             if 'COG' in self.kml_fields:
                                 kml_cog.append(round(float(logvars['COG']), 1))
                             if 'ROC' in self.kml_fields:
                                 roc = float(logvars['ROC'])
-                                roc = round(conv_M_to_ft(roc * 60) if varioIsFpm else roc, 1)
+                                roc = round(conv_M_to_ft(roc * 60) if roc_is_fps else roc, 1)
                                 kml_roc.append(roc)
                             if 'BATM' in self.kml_fields:
                                 kml_batm.append(round(float(logvars['BATM']), 2))
                             if 'BRDT' in self.kml_fields:
                                 brdt = float(logvars['BRDT'])
-                                brdt = round(conv_C_to_F(brdt) if tempIsF else brdt, 2)
+                                brdt = round(conv_C_to_F(brdt) if temp_is_f else brdt, 2)
                                 kml_brdt.append(brdt)
                             # Finished a valid data record, capture the first time as kml_start,
                             # update kml_end on each valid data record so we have the last time.
@@ -324,21 +352,33 @@ class Dbi3LogConversion:
                         print('Data record missing field ' + missing_key)
                         bad_recs += 1
                     # Do we increment the time before or after the data records?
-                    rec_time += two_seconds
+                    rec_time += TWO_SECONDS
             kml_end_lat = last_lat
             kml_end_lon = last_lon
 
-            if dat_recs == 0:
+            if not base_name:
+                # Not full KML conversion, stop here and return summary status
+                rtn_val = data_recs
+                if log_state != 3:
+                    rtn_val = -1
+
+                return SummaryList(status=rtn_val,
+                                   gps_start=kml_start,
+                                   gps_end=kml_end,
+                                   min_altitude=min_altitude,
+                                   max_altitude=max_altitude)
+
+            if data_recs == 0:
                 return 1, 'No GPS data records, skip KML file generations'
             elif log_state != 3:
                 return  -1, 'No END record, skip KML file generation'
 
             # Establish unit of measure strings depending on Metric vs English measures
-            tempStr = 'F' if tempIsF else 'C'
-            sogStr = 'MPH' if spdIsMph else 'mps'
-            distStr = 'mi' if spdIsMph else 'm'
-            rocStr = 'FPM' if varioIsFpm else 'mps'
-            altStr = 'ft' if altIsFt else 'm'
+            tempStr = 'F' if temp_is_f else 'C'
+            sogStr = 'MPH' if spd_is_mph else 'mps'
+            distStr = 'mi' if spd_is_mph else 'm'
+            rocStr = 'FPM' if roc_is_fps else 'mps'
+            altStr = 'ft' if alt_is_ft else 'm'
 
             avg_sog = elapsed_dist / (kml_end - kml_start).total_seconds()  # in meters/second
 
@@ -365,13 +405,13 @@ class Dbi3LogConversion:
 <tr><td>DBI3  {}  FWVER {}</td><tr>
 <tr><td>Formatted {}</td><tr>
 </table>]]>'''.format(t_note,
-                      conv_M_to_mi(elapsed_dist) if spdIsMph else elapsed_dist, distStr,
-                                               conv_M_to_ft(min_altitude) if altIsFt else min_altitude, altStr,
-                                               conv_M_to_ft(max_altitude) if altIsFt else max_altitude, altStr,
-                                               conv_M_to_mi(avg_sog * 60 * 60) if spdIsMph else avg_sog, sogStr,
+                      conv_M_to_mi(elapsed_dist) if spd_is_mph else elapsed_dist, distStr,
+                                               conv_M_to_ft(min_altitude) if alt_is_ft else min_altitude, altStr,
+                                               conv_M_to_ft(max_altitude) if alt_is_ft else max_altitude, altStr,
+                                               conv_M_to_mi(avg_sog * 60 * 60) if spd_is_mph else avg_sog, sogStr,
                                                conv_M_to_mi(
-                                                   max_computed_sog * 60 * 60) if spdIsMph else max_computed_sog,
-                                               conv_M_to_mi(max_sog * 60 * 60) if spdIsMph else max_sog,
+                                                   max_computed_sog * 60 * 60) if spd_is_mph else max_computed_sog,
+                                               conv_M_to_mi(max_sog * 60 * 60) if spd_is_mph else max_sog,
                                                sogStr,
                                                kml_start.isoformat('T'),
                                                kml_end.isoformat('T'),
@@ -440,11 +480,11 @@ class Dbi3LogConversion:
             # Add points to the start and end of the track
             pnt = fol.newpoint(name='Start', coords=[(kml_start_lon, kml_start_lat)])
             pnt.description = kml_start.isoformat('T')
-            pnt.style.labelstyle.color = kml_start_color
+            pnt.style.labelstyle.color = KML_START_COLOR
             pnt.style.iconstyle.icon.href = 'http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png'
             pnt = fol.newpoint(name='Finish', coords=[(kml_end_lon, kml_end_lat)])
             pnt.description = kml_end.isoformat('T')
-            pnt.style.labelstyle.color = kml_end_color
+            pnt.style.labelstyle.color = KML_END_COLOR
             pnt.style.iconstyle.icon.href = 'http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png'
 
             # Add any additional data fields that are requested
@@ -467,218 +507,17 @@ class Dbi3LogConversion:
 
             # Styling
             trk.stylemap.normalstyle.iconstyle.icon.href = 'http://earth.google.com/images/kml-icons/track-directional/track-0.png'
-            trk.stylemap.normalstyle.linestyle.color = kml_line_color
+            trk.stylemap.normalstyle.linestyle.color = KML_LINE_COLOR
             trk.stylemap.normalstyle.linestyle.width = 3
             trk.stylemap.highlightstyle.iconstyle.icon.href = 'http://earth.google.com/images/kml-icons/track-directional/track-0.png'
             trk.stylemap.highlightstyle.iconstyle.scale = 1.2
-            trk.stylemap.highlightstyle.linestyle.color = kml_line_color
+            trk.stylemap.highlightstyle.linestyle.color = KML_LINE_COLOR
             trk.stylemap.highlightstyle.linestyle.width = 8
 
             # Save the kml to file
             kml.save(base_name + ".kml")
 
             return 0, proc_log
-
-    def kml_summary(self):
-        """Read and parse a log file to build summary information.
-
-        Returns:
-        """
-
-        # Determine unit conversion for additional data fields
-        # Allow additional data fields to be english or metric
-        if not self.kml_use_metric:
-            tempIsF = True     # False=centegrade
-            altIsFt = True     # False=meters
-            spdIsMph = True    # False=kph
-            varioIsFpm = True  # False=meters per second
-        else:
-            tempIsF = False
-            varioIsFpm = False
-            spdIsMph = False
-            altIsFt = False
-
-        debug = False
-
-        log_state = 1  # 1=expecting start line, 2=records
-        header_line = False
-        tot_recs = 0
-        dat_recs = 0
-        trim_recs = 0
-        bad_recs = 0
-        # Monitor min/max track data to calculate a bounding box
-        min_lon = 180.0
-        max_lon = -180.0
-        min_lat = 90.0
-        max_lat = -90.0
-        min_toptF = 100.0  # when TOPT is missing, we display this default data
-        min_toptC = 40.0  # - or this
-
-        # "Trip Computer" fields.  Summary fields of a given track.
-        elapsed_dist = 0.0  # summation of Meters between pairs of points
-        max_sog = None  # Max SOG in M/s seen
-        max_computed_sog = None
-        min_altitude = None  # Max ALT in Meters
-        max_altitude = None  # Min ALT in Meters
-
-        # initialize data lists to construct the KML output
-        kml_start = None  # datetime of the first GPS data line
-        kml_end = None  # datetime of the last GPS data line
-        kml_when = []
-        kml_coord = []
-        kml_a_temp = []
-        kml_t_temp = []
-        kml_diff_t = []
-        kml_cog = []
-        kml_sog = []
-        kml_roc = []
-        kml_batm = []
-        kml_brdt = []
-
-        proc_log = ''  # Accumulate print output from the entire conversion
-
-        with open(self.filename) as myfile:
-            rec_time = None
-            # calculate elapsed distance by summing distance between last and current point
-            last_lat = None
-            last_lon = None
-            for line in myfile:
-                tot_recs += 1
-                logvars = {}
-                try:
-                    line = line.rstrip('\r\n')
-                    arg_pairs = line.split(" ")
-                    for p in arg_pairs:  # type: str
-                        var, val = p.split("=")  # type: (str, str)
-                        logvars[var] = val
-                except Exception as e:
-                    print('Exception parsing line {} is: {}'.format(line, e))
-                    bad_recs += 1
-                    continue
-
-                if 'DATE' in list(logvars.keys()):
-                    # datetime from a start or end line
-                    log_datetime = datetime.strptime(logvars['DATE'] + ' ' + logvars['TIME'], '%Y-%m-%d %H:%M:%S')
-                else:
-                    log_datetime = None
-
-                if log_state == 1:  # Expecting the start line from the log file
-                    missing_key = self.__field_check(start_fields, logvars)
-                    if missing_key is not None:
-                        print('Start record missing field ' + missing_key)
-                        break
-                    start_datetime = log_datetime
-                    rec_time = log_datetime  # first data record timestamp is start
-                    dbi3_fwver = logvars['FWVER']
-                    if self.dbi3_sn is None:
-                       self.dbi3_sn = logvars['SN']
-                    log_state = 2
-                    proc_log += '  Start time ' + start_datetime.isoformat(' ')
-                elif log_state > 1 and log_datetime is not None:
-                    # START record was processed, the next record with a DATE is the END record
-                    end_datetime = log_datetime
-                    missing_key = self.__field_check(end_fields, logvars)
-                    if missing_key is None:
-                        log_state = 3
-                        proc_log += '\n  Total records={}  data records={}  bad records={}'.format(tot_recs,
-                                                                                                   dat_recs, bad_recs)
-                        proc_log += '\n  End time ' + end_datetime.isoformat('T') + ' Rec time ' + \
-                            rec_time.isoformat('T')
-                    else:
-                        print('End record missing field ' + missing_key)
-                    break
-                else:
-                    # This should be a DATA record
-                    missing_key = self.__field_check(data_fields, logvars)
-                    if missing_key is None:
-                        if logvars['GPSS'] == '0':
-                            ####
-                            # This is a data record and it has GPS data
-                            ####
-                            # TODO if trim_start is defined and rec_time < trim_start
-                            #  or  trim_end is defined and rec_time > trim_end,
-                            #      count as trim_recs and skip to the next record
-                            if self.trim_start_time is not None and rec_time < self.trim_start_time:
-                                trim_recs += 1
-                                continue
-                            elif self.trim_end_time is not None and rec_time > self.trim_end_time:
-                                trim_recs += 1
-                                continue
-
-                            dat_recs += 1
-                            if debug:
-                                print('Record ' + rec_time.isoformat('T') + ' ' + logvars['LAT'] + ' ' + logvars['LONG'])
-
-                            # calculate and accumulate KML data
-                            kml_lat = self.__ddmm2d(logvars['LAT'])
-                            kml_lon = self.__ddmm2d(logvars['LONG'])
-                            # calculate min/max lat and lon so we can construct a display bounding box
-                            if kml_lat < min_lat:
-                                min_lat = kml_lat
-                            if kml_lat > max_lat:
-                                max_lat = kml_lat
-                            if kml_lon < min_lon:
-                                min_lon = kml_lon
-                            if kml_lon > max_lon:
-                                max_lon = kml_lon
-                            # Append the time and coordinate lists
-                            altitude = float(logvars['ALT'])
-                            if self.altitude_offset is not None: altitude += self.altitude_offset
-
-                            #
-                            # For trip stats, sum the total distance traveled, max speed, min/max altitude
-                            #
-                            if last_lat is not None:
-                                point_dist = calc_distance((last_lat, last_lon), (kml_lat, kml_lon))
-                                elapsed_dist += point_dist
-                                computed_sog = point_dist / 2.0  # fixed time between point is 2 seconds
-                                if max_computed_sog is None or computed_sog > max_computed_sog:
-                                    max_computed_sog = computed_sog
-                            last_lat = kml_lat  # save last lat/lon for the next time thru the loop
-                            last_lon = kml_lon
-                            if max_altitude is None or altitude > max_altitude:
-                                max_altitude = altitude
-                            if min_altitude is None or altitude < min_altitude:
-                                min_altitude = altitude
-                            sog = float(logvars['SOG'])
-                            if max_sog is None or sog > max_sog:
-                                max_sog = sog
-
-                            #
-                            # Additional data fields
-                            #
-                            amb_temp = conv_C_to_F(float(logvars['AMBT'])) if tempIsF else float(logvars['AMBT'])
-                            if logvars['TOPTS'] == '1':
-                                top_temp = conv_C_to_F(float(logvars['TOPT'])) if tempIsF else float(logvars['TOPT'])
-                            else:
-                                top_temp = min_toptF if tempIsF else min_toptC
-                            sog = float(logvars['SOG'])
-                            sog = round(conv_M_to_mi(sog * 60 * 60) if spdIsMph else sog, 1)
-                            roc = float(logvars['ROC'])
-                            roc = round(conv_M_to_ft(roc * 60) if varioIsFpm else roc, 1)
-                            brdt = float(logvars['BRDT'])
-                            brdt = conv_C_to_F(brdt) if tempIsF else brdt
-                            # Finished a valid data record, capture the first time as kml_start,
-                            # update kml_end on each valid data record so we have the last time.
-                            if kml_start is None:
-                                kml_start = rec_time
-                            kml_end = rec_time
-                    else:
-                        print('Data record missing field ' + missing_key)
-                        bad_recs += 1
-                    # Do we increment the time before or after the data records?
-                    rec_time += two_seconds
-
-            rtn_val = dat_recs
-            if log_state != 3:
-                rtn_val = -1
-
-            return SummaryList(status = rtn_val,
-                               gps_start = kml_start,
-                               gps_end = kml_end,
-                               min_altitude = min_altitude,
-                               max_altitude = max_altitude)
-
 
     @staticmethod
     def __field_check(req_fields, myvars):
