@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# vim: set sw=4 st=4 ai expandtab:
+# vim: set shiftwidth=4 softtabstop=4 autoindent expandtab:
 """Drive the DBI3 log downloads and conversions to KML
 
 It can run interactively with CLI menus or --sync will run automatically to find a DBI3
@@ -7,6 +7,8 @@ serial port, download all new logs for the Serial Number DBI3, then convert all 
 to KML for that DBI3 SN.
 """
 # TODO ensure config defaults all work from code, .conf, kml.conf, or cmd line switch
+# TODO Log download and conversions to rolling journal for historical reference.  Include edits
+# TODO GPS Altitude field entered after fw ver 1.2 so we need to handle as optional
 from __future__ import print_function
 import os
 import sys
@@ -21,11 +23,11 @@ from serial.tools.list_ports import comports
 try:  # Handle either python 2/3 import syntax
     from dbi3_log_conversion import *
     from dbi3_log_downloads import *
-    from dbi3_common import utc, dbi_all_log_fields, dbi_def_log_fields
+    from dbi3_common import utc, DBI_ALL_LOG_FIELDS, DBI_DEFAULT_LOG_FIELDS
 except ImportError:
     from .dbi3_log_conversion import *
     from .dbi3_log_downloads import *
-    from .dbi3_common import utc, dbi_all_log_fields, dbi_def_log_fields
+    from .dbi3_common import utc, DBI_ALL_LOG_FIELDS, DBI_DEFAULT_LOG_FIELDS
 try:  # Handle input for python 2/3
     input = raw_input
 except NameError:
@@ -33,7 +35,7 @@ except NameError:
 
 __version__ = '0.3.alpaha'
 
-dbi_conf = os.path.join(os.path.expanduser('~'), '.DBI3config')  # hidden DBI3 config filename
+DBI_CONF_FILE = os.path.join(os.path.expanduser('~'), '.DBI3config')  # hidden DBI3 config filename
 DEF_LOG_PATH = os.path.join(os.path.expanduser('~'), 'Documents', 'DBI3logs')
 DEF_KML_PATH = os.path.join(DEF_LOG_PATH, 'kml')
 log_path = None
@@ -58,6 +60,7 @@ verbose = False
         help_txt = help
 '''
 ConfigSpec = collections.namedtuple('ConfigSpec', 'field_name name default validation_func direct help_txt')
+
 
 def EditConfig(cfg_path):
     print('''
@@ -89,12 +92,13 @@ Other parameters can be left as default.
                    'Default Google Earth extend_to_ground setting? T/F'),
         ConfigSpec('kml_use_metric', 'kml_use_metric', False, true_false, False,
                    'Default Google Earth use Metric values for KML data? T/F'),
-        ConfigSpec('kml_fields', 'kml_fields', ','.join(dbi_def_log_fields), fields_check, False,
-                   'Default Google Earth extra data fields, available (ALL,{})'.format(','.join(dbi_all_log_fields))),
+        ConfigSpec('kml_fields', 'kml_fields', ','.join(DBI_DEFAULT_LOG_FIELDS), fields_check, False,
+                   'Default Google Earth extra data fields, available (ALL,{})'.format(','.join(DBI_ALL_LOG_FIELDS))),
         ConfigSpec('verbose', 'verbose', False, true_false, False, 'Enable verbose debug output? T/F')
     ]
 
     UpdateConfig(cfg_path, AppConfig, data)
+
 
 def EditKmlConfig(cfg_path):
     data = {}
@@ -103,23 +107,25 @@ def EditKmlConfig(cfg_path):
             data = json.load(conf_file)
 
     KmlConfig = [
-        ConfigSpec('track_note' ,'track_note', None, text_check, False,
+        ConfigSpec('track_note', 'track_note', None, text_check, False,
                    'Single line text added to track properties block (e.g. passenger names)'),
-        ConfigSpec('trim_start_time' ,'trim_start_time', None, time_check, False, 'Ignore DBI3 data until YYYYMMDDhhmmss'),
-        ConfigSpec('trim_end_time' ,'trim_end_time', None, time_check, False, 'Ignore DBI3 data after YYYYMMDDhhmmss'),
-        ConfigSpec('altitudemode' ,'altitudemode', None, alt_mode_check, False,
+        ConfigSpec('trim_start_time', 'trim_start_time', None, time_check, False,
+                   'Ignore DBI3 data until YYYYMMDDhhmmss'),
+        ConfigSpec('trim_end_time', 'trim_end_time', None, time_check, False, 'Ignore DBI3 data after YYYYMMDDhhmmss'),
+        ConfigSpec('altitudemode', 'altitudemode', None, alt_mode_check, False,
                    'Google Earth altitude display = absolute, clampToGround, relativeToGround'),
-        ConfigSpec('altitude_offset' ,'altitude_offset', None, float_check, False,
+        ConfigSpec('altitude_offset', 'altitude_offset', None, float_check, False,
                    'floating point offset in meters to the DBI3 reported altitude'),
-        ConfigSpec('extend_to_ground' ,'extend_to_ground', True, true_false, False,
+        ConfigSpec('extend_to_ground', 'extend_to_ground', True, true_false, False,
                    'Should Google Earth extend tracks to the ground? T/F'),
-        ConfigSpec('kml_use_metric' ,'kml_use_metric', False, true_false, False,
+        ConfigSpec('kml_use_metric', 'kml_use_metric', False, true_false, False,
                    'Use metric instead of english measure for extra data? T/F'),
-        ConfigSpec('kml_fields', 'kml_fields', ','.join(dbi_def_log_fields), fields_check, False,
-                   'Google Earth extra data fields, available (ALL,{})'.format(','.join(dbi_all_log_fields)))
+        ConfigSpec('kml_fields', 'kml_fields', ','.join(DBI_DEFAULT_LOG_FIELDS), fields_check, False,
+                   'Google Earth extra data fields, available (ALL,{})'.format(','.join(DBI_ALL_LOG_FIELDS)))
     ]
 
     UpdateConfig(cfg_path, KmlConfig, data)
+
 
 def UpdateConfig(cfg_path, Config, data):
     while True:
@@ -189,6 +195,7 @@ def UpdateConfig(cfg_path, Config, data):
 
             break
 
+
 #
 # Configuration file field validation methods follow
 #
@@ -196,12 +203,14 @@ def text_check(param_name, line):
     """text_check input validation is a nop for now"""
     return line
 
+
 def int_check(param_name, var):
     try:
         return int(var)
     except Exception as e:
         print("Exception converting {} [{}] to integer".format(param_name, var))
     return None
+
 
 def path_check(param_name, new_path):
     if new_path.startswith('~/'):
@@ -215,6 +224,7 @@ def path_check(param_name, new_path):
         return None
     return new_path
 
+
 def true_false(param_name, selection):
     """This will take ANY input and return True or False.  Anything that doesn't look True becomes False!"""
     s = selection.lower()
@@ -222,17 +232,21 @@ def true_false(param_name, selection):
         return True
     return False
 
+
 def alt_mode_check(param_name, mode):
     valid_modes = ['absolute', 'clampToGround', 'relativeToGround']
     if mode in valid_modes:
         return mode
     return None
 
+
 def float_check(param_name, fp_string):
     return float(fp_string)
 
+
 def time_check(param_name, time_str):
     return datetime.strptime(time_str, "%Y%m%d%H%M%S").strftime("%Y%m%d%H%M%S")
+
 
 def ask_for_port(param_name, com_port):
     """
@@ -262,16 +276,17 @@ def ask_for_port(param_name, com_port):
             port = ports[index]
         return port
 
+
 def fields_check(param_name, fields):
     """Check comma separated list of KML data fields."""
     fl = fields.split(',')
     # Verifiy the fields list and set the field names in a boolean dictionary
     if 'ALL' in fl:
         # Special case, turns on all fields
-        return dbi_all_log_fields
+        return DBI_ALL_LOG_FIELDS
     for fn in fl:
-        if fn not in dbi_all_log_fields:
-            print('error: argument --fields: invalid choice: "{}" is not in "{}"'.format(fn, dbi_all_log_fields))
+        if fn not in DBI_ALL_LOG_FIELDS:
+            print('error: argument --fields: invalid choice: "{}" is not in "{}"'.format(fn, DBI_ALL_LOG_FIELDS))
             return None
     return fl
 
@@ -293,7 +308,7 @@ def convert_new_logs(dbi3_sn, sn_log_path, kml_path):
     conv_list = Dbi3KmlList(sn_log_path, dbi3_sn, kml_path)
     conv_list.refresh_list(new_logs_only=True)
     for le in conv_list.conversion_list:
-        if le.new_file:
+        if le.new_file:  # only process files marked as new
             dbi3_obj = Dbi3LogConversion(le.log_filename,
                                          sn=dbi3_sn,
                                          kml_use_metric=kml_use_metric,
@@ -301,24 +316,24 @@ def convert_new_logs(dbi3_sn, sn_log_path, kml_path):
                                          altitudemode=altitudemode,
                                          extend_to_ground=extend_to_ground,
                                          verbose=verbose)
-        rtn, rtn_str = dbi3_obj.kml_convert(le.kml_filename)
-        if rtn < 0:
-            print('Convert FAILED {}  new:{}  edits:{}   to {}\n{}'.format(le.log_name,
-                                                                           'Y' if le.new_file else 'N',
-                                                                           le.override,
-                                                                           le.kml_name,
-                                                                           rtn_str))
-        elif rtn > 0 and verbose:
-            # not converted warning (probably no GPS data)
-            print('Convert {}  new:{}  edits:{}\n{}'.format(le.log_name,
-                                                            'Y' if le.new_file else 'N',
-                                                            le.override,
-                                                            rtn_str))
-        elif rtn == 0:
-            print('Converted {}  new:{}  edits:{}\n{}'.format(le.log_name,
-                                                              'Y' if le.new_file else 'N',
-                                                              le.override,
-                                                              rtn_str))
+            rtn, rtn_str = dbi3_obj.kml_convert(le.kml_filename)
+            if rtn < 0:
+                print('Convert FAILED {}  new:{}  edits:{}   to {}\n{}'.format(le.log_name,
+                                                                               'Y' if le.new_file else 'N',
+                                                                               le.override,
+                                                                               le.kml_name,
+                                                                               rtn_str))
+            elif rtn > 0 and verbose:
+                # not converted warning (probably no GPS data)
+                print('Convert {}  new:{}  edits:{}\n{}'.format(le.log_name,
+                                                                'Y' if le.new_file else 'N',
+                                                                le.override,
+                                                                rtn_str))
+            elif rtn == 0:
+                print('Converted {}  new:{}  edits:{}\n{}'.format(le.log_name,
+                                                                  'Y' if le.new_file else 'N',
+                                                                  le.override,
+                                                                  rtn_str))
 
 
 def process_dbi():
@@ -397,8 +412,8 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
 
     def do_config(self, line):
         """Set port, log path, kml path"""
-        EditConfig(dbi_conf)
-        read_config_file(dbi_conf)  # update local config variables from the config file
+        EditConfig(DBI_CONF_FILE)
+        read_config_file(DBI_CONF_FILE)  # update local config variables from the config file
 
     def do_filter(self, line):
         """Filter DBI3 logs in the list - all|new|old|valid|invalid|DD[,...}  where DD=age_limit in days"""
@@ -644,7 +659,7 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
                                          altitudemode=altitudemode,
                                          extend_to_ground=extend_to_ground,
                                          verbose=verbose)
-            log_stats = dbi3_obj.kml_convert(base_name=None)
+            log_stats = dbi3_obj.log_summary()
             if CLI_skip_invalid:
                 if log_stats.status <= 0:
                     continue
@@ -701,6 +716,7 @@ Selected logs are marked with "*" after the line number.
         
     def do_convert(self, line):
         """Convert the currently selected DBI3 logs to KML"""
+        # le array, [0]=select bool, [1]=ConversionList namedtuple
         for le in self.my_list:
             if le[0]:
                 dbi3_obj = Dbi3LogConversion(le[1].log_filename,
@@ -717,6 +733,18 @@ Selected logs are marked with "*" after the line number.
                     print('Convert {} : {}'.format(le[1].log_name, rtn_str))
                 elif rtn == 0:
                     print('Convert {}\n{}'.format(le[1].log_name, rtn_str))
+
+                # TODO - this is a temporary hack for development
+                #        csv enabled by command line flag
+                if args.csv:
+                    csv_filename = os.path.join(os.path.expanduser('~'), 'Documents', le[1].kml_name + '.csv')
+                    rtn, rtn_str = dbi3_obj.csv_convert(csv_filename)
+                    if rtn < 0:
+                        print('Convert {} to {} FAILED: {}'.format(le[1].log_name, csv_filename, rtn_str))
+                    elif rtn > 0 and verbose:
+                        print('Convert {} : {}'.format(le[1].log_name, rtn_str))
+                    elif rtn == 0:
+                        print('Convert {}\n{}'.format(le[1].log_name, rtn_str))
 
     def do_EOF(self, line):
         """back to Main menu"""
@@ -840,10 +868,10 @@ def __non_interactive_auto_config():
         return False
     kml_path = DEF_KML_PATH
     data = {'log_path': log_path, 'kml_path': kml_path}
-    with open(dbi_conf, 'w') as conf_file:
+    with open(DBI_CONF_FILE, 'w') as conf_file:
         json.dump(data, conf_file, indent=4, separators=(',', ': '), sort_keys=True)
         conf_file.write('\n')
-    print('Created config file {}'.format(dbi_conf))
+    print('Created config file {}'.format(DBI_CONF_FILE))
     return True
 
 
@@ -887,15 +915,17 @@ format is "YYYY_MM_DD_hh_mm_ss.log".  KML output to the kml_path has a filename 
     parser.add_argument('--file', action='store', dest='file', default=None,
                         help='Single file conversion, this is the path to a single DBI3 log file ' +
                         'that will be converted to a single KML file in the same directory.')
-    parser.add_argument('--fields', action='store', default=dbi_def_log_fields,
+    parser.add_argument('--fields', action='store', default=DBI_DEFAULT_LOG_FIELDS,
                         type=lambda s: s.split(','),
-                        help='Which DBI3 data fields should be included in the KML output, default={}, choices={}, ALL turns on all fields'
-                        .format(','.join(dbi_def_log_fields), ','.join(dbi_all_log_fields)))
+                        help='Which DBI3 data fields should be included in the KML output, default={}, ' +
+                             'choices={}, ALL turns on all fields'
+                        .format(','.join(DBI_DEFAULT_LOG_FIELDS), ','.join(DBI_ALL_LOG_FIELDS)))
     parser.add_argument('--altitudemode', action='store', default=None,
                         choices=['absolute', 'clampToGround', 'relativeToGround'],
                         help='Google Earth display mode for track altitude, default=absolute')
     parser.add_argument('--extend_to_ground', action='store_true', default=None,
-                        help='Google Earth setting to extend track displays with verticle lines to the ground. default=True')
+                        help='Google Earth setting to extend track displays with verticle lines to the ' +
+                             'ground. default=True')
     parser.add_argument('--useMetric', action='store_true', default=None,
                         help='For additional profile graph data fields use meters per second for rate of climb, ' +
                              'kilometers per hour for speed, ' +
@@ -903,7 +933,8 @@ format is "YYYY_MM_DD_hh_mm_ss.log".  KML output to the kml_path has a filename 
                              'default=FPM, MPH, Fahrenheit, feet.  NOTE: Google Earth config controls ' +
                              'the map display units for Track Elevation and Speed.')
     parser.add_argument('--offset', action='store', dest='altitude_offset', type=float, default=0.0,
-                        help='USED WITH --file ARGUMENT ONLY: correction offset to apply to the pressure altitude, default=0.0')
+                        help='USED WITH --file ARGUMENT ONLY: correction offset to apply to the pressure ' +
+                             'altitude, default=0.0')
     # TODO do we want command line override?
     # parser.add_argument('--log_path', action='store', dest='log_path', default=None,
     #                     help='destination path for the output log files.')
@@ -916,10 +947,13 @@ format is "YYYY_MM_DD_hh_mm_ss.log".  KML output to the kml_path has a filename 
     parser.add_argument('--verbose', action='store_true', default=None,
                         help='verbose debug output during processing')
     parser.add_argument('-V', '--version', action='version', version='%(prog)s (' + __version__ + ')')
+    parser.add_argument('--csv', action='store_true', default=False,
+                        help='DEVELOPMENT if true, when kml:convert is run it will also output a csv file to the ' +
+                             '{HOME}/Documents directory')
     args = parser.parse_args()
 
     # Read the optional config file and update specified settings
-    read_config_file(dbi_conf)
+    read_config_file(DBI_CONF_FILE)
 
     # ==== Command line arguments override the config file without altering the config file
 
@@ -968,15 +1002,15 @@ format is "YYYY_MM_DD_hh_mm_ss.log".  KML output to the kml_path has a filename 
 
     elif args.sync:
         # Non-interactive sync with the DBI3
-        if not os.path.isfile(dbi_conf):
-            # non-interactive sync without a dbi_conf file, attempt auto configure
+        if not os.path.isfile(DBI_CONF_FILE):
+            # non-interactive sync without a DBI_CONF_FILE file, attempt auto configure
             if not __non_interactive_auto_config():
                 print('Auto config failed')
                 sys.exit(-2)
 
         process_dbi()
     else:
-        if not os.path.isfile(dbi_conf):
+        if not os.path.isfile(DBI_CONF_FILE):
             print('\n########## Initial Configuration ##########\n')
             print('The default location for DBI3 log files is:\n  {}'.format(DEF_LOG_PATH))
             print('And the default for KML output files is:\n  {}'.format(DEF_KML_PATH))
@@ -985,5 +1019,5 @@ format is "YYYY_MM_DD_hh_mm_ss.log".  KML output to the kml_path has a filename 
                 __non_interactive_auto_config()
             # Regardless of auto_config, drop into config edit.
             print('log_path {} kml_path {}'.format(log_path, kml_path))
-            EditConfig(dbi_conf)
+            EditConfig(DBI_CONF_FILE)
         Dbi3InteractiveCommandLine().cmdloop()
