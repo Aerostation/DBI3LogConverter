@@ -49,15 +49,25 @@ ROADMAP -
 - Add gui front end.
 - Automate build version increment
 
-BUILD - The Windows 10 conversion to EXE is currently done with:
+####BUILD -
+Pyinstaller is used to package DBI3cli into a single executable file for Windows 10 and Linux.
+
+Pyinstaller has an import hook for \__version__.py that constructs the version string from git tag and commit information.  It uses setuptools_scm to do the formatting (usually referenced in setup.py)
+
+BUILD - The Windows 10 conversion to EXE is currently done in a cmd window with
+(pyinstaller hook for __version__ requires "git" be in the windows path now):
 ```command
-C:\Python27\Scripts\pyinstaller --clean --workpath ..\build --distpath ..\dist DBI3cli
-C:\Python27\Scripts\pyinstaller --clean --workpath ..\build --distpath ..\dist --onefile --console DBI3cli
+set Path=%Path;C:\Program Files\git\bin
+cd C:\Users\thornton\Documents\git\DBI3LogConverter
+C:\Python27\Scripts\pyinstaller --clean --workpath ..\build --distpath ..\dist DBI3cli --additional-hooks-dir .
+  or
+C:\Python27\Scripts\pyinstaller --clean --workpath ..\build --distpath ..\dist --onefile --additional-hooks-dir . --console DBI3cli
 ```
 
 BUILD UBUNTU - on HOTAIR:
 ```bash
 source ~/PyEnvs/DBI3dev/bin/activate
 pyinstaller --clean DBI3cli
+  or
 pyinstaller --clean --distpath ./dist/onefile --onefile DBI3cli
 ```

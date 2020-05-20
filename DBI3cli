@@ -10,6 +10,7 @@ to KML for that DBI3 SN.
 # TODO Log download and conversions to rolling journal for historical reference.  Include edits
 # TODO GPS Altitude field entered after fw ver 1.2 so we need to handle as optional
 from __future__ import print_function
+from __version__ import __version__
 import os
 import sys
 import argparse
@@ -32,8 +33,6 @@ try:  # Handle input for python 2/3
     input = raw_input
 except NameError:
     pass
-
-__version__ = '0.3.alpaha'
 
 DBI_CONF_FILE = os.path.join(os.path.expanduser('~'), '.DBI3config')  # hidden DBI3 config filename
 DEF_LOG_PATH = os.path.join(os.path.expanduser('~'), 'Documents', 'DBI3logs')
@@ -399,16 +398,21 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
 
     def preloop(self):
         self.do_doc('')
+        self.do_version('')
         self.do_help('')
 
     def do_help(self, *args):
         """List available commands with "help" or detailed help with "help cmd"."""
         cmd.Cmd.do_help(self, *args)
-        print('CURRENT LOG FILTER: ' + filter_text())
+        print('CURRENT LOG FILTER: [{}]'.format(filter_text()))
 
     def do_doc(self, line):
         """Display basic application documentation."""
         print(self.my_header)
+
+    def do_version(self, line):
+        """Display the DBI3cli software version string"""
+        print('DBI3cli version ({})\n'.format(__version__))
 
     def do_config(self, line):
         """Set port, log path, kml path"""
@@ -451,7 +455,7 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
                 except ValueError as e:
                     print('ERROR: unknown filter time {} : {}'.format(ln, e.message))
                     continue
-        print('CURRENT LOG FILTER: ' + filter_text())
+        print('CURRENT LOG FILTER: [{}]'.format(filter_text()))
 
     def help_filter(self):
         print('Filter out the display of logs in the Logs and KML lists.')
@@ -533,7 +537,7 @@ class Dbi3LogListCommands(cmd.Cmd):
     def do_help(self, *args):
         """List available commands with "help" or detailed help with "help cmd"."""
         cmd.Cmd.do_help(self, *args)
-        print('CURRENT LOG FILTER: ' + filter_text())
+        print('CURRENT LOG FILTER: [{}]'.format(filter_text()))
 
     def do_refresh(self, line):
         """Re-read the DBI3 log list"""
@@ -546,7 +550,7 @@ class Dbi3LogListCommands(cmd.Cmd):
 Selected logs are marked with "*" after the line number.
 "list selected" limits list to only selected logs.
 """
-        print('\nCURRENT LOG FILTER: ' + filter_text())
+        print('\nCURRENT LOG FILTER: [{}]'.format(filter_text()))
         only_sel = line == 'selected'
         for i, le in enumerate(self.my_list):
             if only_sel == False or le[0] == True:
@@ -645,7 +649,7 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
     def do_help(self, *args):
         """List available commands with "help" or detailed help with "help cmd"."""
         cmd.Cmd.do_help(self, *args)
-        print('CURRENT LOG FILTER: ' + filter_text())
+        print('CURRENT LOG FILTER: [{}]'.format(filter_text()))
 
     def do_refresh(self, line):
         """Re-read the local DBI3 logs available for KML conversion, reset selections"""
@@ -673,7 +677,7 @@ Selected logs are marked with "*" after the line number.
 "list selected" limits list to only the selected logs.
 """
         # Create and display a filter status line based on the settings
-        print('\nCURRENT LOG FILTER: ' + filter_text())
+        print('\nCURRENT LOG FILTER: [{}]'.format(filter_text()))
         only_sel = line == 'selected'
         for i, le in enumerate(self.my_list):
             if only_sel and not le[0]:
