@@ -59,15 +59,15 @@ BUILD - The Windows 10 conversion to EXE is currently done in a cmd window with
 ```command
 set Path=%Path;C:\Program Files\git\bin
 cd C:\Users\thornton\Documents\git\DBI3LogConverter
-C:\Python27\Scripts\pyinstaller --clean --workpath ..\build --distpath ..\dist DBI3cli --additional-hooks-dir .
+C:\Python27\Scripts\pyinstaller --clean --workpath ..\build --distpath ..\dist DBI3cli --additional-hooks-dir=hooks
   or
-C:\Python27\Scripts\pyinstaller --clean --workpath ..\build --distpath ..\dist --onefile --additional-hooks-dir . --console DBI3cli
+C:\Python27\Scripts\pyinstaller --clean --workpath ..\build --distpath ..\dist --onefile --additional-hooks-dir=hooks --console DBI3cli
 ```
 
 BUILD UBUNTU - on HOTAIR:
 ```bash
 source ~/PyEnvs/DBI3dev/bin/activate
-pyinstaller --clean DBI3cli
+pyinstaller --clean --additional-hooks-dir=hooks DBI3cli
   or
-pyinstaller --clean --distpath ./dist/onefile --onefile DBI3cli
+pyinstaller --clean --distpath ./dist/onefile --onefile --additional-hooks-dir=hooks DBI3cli
 ```
