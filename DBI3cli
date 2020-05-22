@@ -712,6 +712,9 @@ Selected logs are marked with "*" after the line number.
         try:
             idx = int(line)
             le = self.my_list[idx]
+        except ValueError:
+            print('Requires a line number to edit from the current list output')
+            return
         except Exception as e:
             print('Unable to edit {}: {}'.format(line, e.message))
             return
