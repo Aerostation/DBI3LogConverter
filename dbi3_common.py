@@ -6,7 +6,7 @@ DBI3 common definitions/declarations
 import collections
 try:
     from datetime import timezone
-    utc = timezone.utc()
+    utc = timezone.utc
 except ImportError:
     """Python 2 doesn't have timezone module, define here."""
     from datetime import tzinfo, timedelta
@@ -22,7 +22,8 @@ except ImportError:
 
 
 # Define named tuples for DBI3 KML conversion list entries
-ConversionList = collections.namedtuple('ConversionList', 'log_name log_filename kml_name kml_filename new_file meta_name override')
+ConversionList = collections.namedtuple('ConversionList',
+                                        'log_name log_filename kml_name kml_filename new_file meta_name override')
 SummaryList = collections.namedtuple('SummaryList', 'status, gps_start, gps_end, min_altitude, max_altitude')
 
 # Define named tuple for DBI3 LOG list entries
@@ -30,5 +31,15 @@ LogList = collections.namedtuple('LogList', 'name_start name_end start_dt end_dt
 
 # There are many additional LOG fields that can be included in the KML.  These lists are the complete set,
 # and the default set used in KML conversions.  NOTE: DIFF is a calculated value=TOPT-AMBT
-dbi_all_log_fields = ['ROC', 'TOPT', 'AMBT', 'DIFF', 'SOG', 'COG', 'BATM', 'BRDT']
-dbi_def_log_fields = ['ROC', 'TOPT', 'AMBT', 'DIFF', 'SOG', 'COG']
+DBI_ALL_LOG_FIELDS = ['ROC', 'TOPT', 'AMBT', 'DIFF', 'SOG', 'COG', 'BATM', 'BRDT']
+DBI_DEFAULT_LOG_FIELDS = ['ROC', 'TOPT', 'AMBT', 'DIFF', 'SOG', 'COG']
+
+# Metadata log config files can alter the converted output of individual logs.  The available keys are
+METADATA_CONFIG_ATTR = ["altitudemode",
+                        "altitude_offset",
+                        "extend_to_ground",
+                        "kml_use_metric",
+                        "kml_fields",
+                        "trim_start_time",
+                        "trim_end_time",
+                        "track_note"]
