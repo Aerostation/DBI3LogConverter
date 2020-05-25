@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # vim: set shiftwidth=4 softtabstop=4 autoincrement expandtab:
-"""Program to convert DBI3 log files to KML"""
+"""Classes to parse and convert DBI3 log files"""
 
 from __future__ import print_function
 import os
@@ -12,11 +12,13 @@ import math
 import re
 
 try:
-    from dbi3_common import ConversionList, SummaryList, utc, DBI_DEFAULT_LOG_FIELDS, METADATA_CONFIG_ATTR
+    from dbi3_common import ConversionList, SummaryList, utc, DBI_DEFAULT_LOG_FIELDS
     from dbi3_log_downloads import DBI3LogDownload
+    from dbi3_config_options import Dbi3ConfigOptions, Dbi3ConversionOptions
 except ImportError:
-    from .dbi3_common import ConversionList, SummaryList, utc, DBI_DEFAULT_LOG_FIELDS, METADATA_CONFIG_ATTR
+    from .dbi3_common import ConversionList, SummaryList, utc, DBI_DEFAULT_LOG_FIELDS
     from .dbi3_log_downloads import DBI3LogDownload
+    from .dbi3_config_options import Dbi3ConfigOptions, Dbi3ConversionOptions
 
 TWO_SECONDS = timedelta(seconds=2)  # time increment between data records
 KML_LINE_COLOR = 'ff0000ff'  # hex aabbggrr
@@ -34,18 +36,20 @@ class Dbi3Log:
     values across the log.
     """
 
-    def __init__(self, config, filename, sn=None):
+    def __init__(self, kml_cfg, filename, sn=None):
         """Initialize the DBI3LogConversion object
+        
+        Class will parse DBI3 track data from the log.
 
-        :param Dbi3ConversionConfig config:
-        :param str filename:
-        :param str sn:
+        :param Dbi3ConversionOptions kml_cfg:
+        :param str filename:  Full path to DBI3 log file
+        :param str sn:  optional DBI3 SN if known at constructor time
 
         """
 
         self.filename = filename
         self.dbi3_sn = sn
-        self.config = config
+        self.kml_cfg = kml_cfg
         self.dbi3_fwver = None
 
         self.proc_log = ''  # Accumulate print output from the entire conversion
@@ -99,7 +103,7 @@ class Dbi3Log:
         self.kml_batm = []
         self.kml_brdt = []
 
-    def kml_parse(self):
+    def dbi3_log_parse(self):
         """Function to read and parse a DBI3 log file for later conversion
 
         :return SummaryStatus: Log summary
@@ -108,7 +112,7 @@ class Dbi3Log:
 
         # Determine unit conversion for additional data fields
         # Allow additional data fields to be english or metric
-        if not self.config.kml_use_metric:
+        if not self.kml_cfg.kml_use_metric:
             temp_is_f = True     # False=centegrade
             alt_is_ft = True     # False=meters
             spd_is_mph = True    # False=kph
@@ -191,10 +195,10 @@ class Dbi3Log:
                             # This is a data record and it has GPS data
                             ####
                             # Check for start/end time trim
-                            if self.config.trim_start_time is not None and rec_time < self.config.trim_start_time:
+                            if self.kml_cfg.trim_start_time is not None and rec_time < self.kml_cfg.trim_start_time:
                                 self.trim_recs += 1
                                 continue
-                            elif self.config.trim_end_time is not None and rec_time > self.config.trim_end_time:
+                            elif self.kml_cfg.trim_end_time is not None and rec_time > self.kml_cfg.trim_end_time:
                                 self.trim_recs += 1
                                 continue
 
@@ -218,19 +222,15 @@ class Dbi3Log:
                             self.kml_when.append(rec_time.isoformat('T'))
 
                             altitude = float(logvars['ALT'])
-                            if self.config.altitude_offset is not None: altitude += self.config.altitude_offset
-                            self.max_altitude = altitude if self.max_altitude is None or altitude > self.max_altitude \
-                                else self.max_altitude
-                            self.min_altitude = altitude if self.min_altitude is None or altitude < self.min_altitude \
-                                else self.min_altitude
+                            if self.kml_cfg.altitude_offset is not None: altitude += self.kml_cfg.altitude_offset
                             self.kml_alt.append(
-                                round(altitude if self.config.kml_use_metric else conv_M_to_ft(altitude), 1))
+                                round(altitude if self.kml_cfg.kml_use_metric else conv_M_to_ft(altitude), 1))
 
                             # if we have GPS altitude available, determine which we use in the coordinates
                             if has_msl is None:  # determine if the data record includes GPS altitude
                                 has_msl = logvars.get('MSLALT') is not None
                                 # determine if we have and prefer GPS altitude for the track points
-                                self.kml_coord_alt_gps = has_msl and self.config.prefer_msl
+                                self.kml_coord_alt_gps = has_msl and self.kml_cfg.prefer_gps
                             if has_msl:
                                 gps_msl = float(logvars['MSLALT'])
                                 self.max_gps_msl = gps_msl if self.max_gps_msl is None or gps_msl > self.max_gps_msl \
@@ -238,11 +238,18 @@ class Dbi3Log:
                                 self.min_gps_msl = gps_msl if self.min_gps_msl is None or gps_msl < self.min_gps_msl \
                                     else self.min_gps_msl
                                 self.kml_gps_msl.append(
-                                    round(gps_msl if self.config.kml_use_metric else conv_M_to_ft(gps_msl), 1))
+                                    round(gps_msl if self.kml_cfg.kml_use_metric else conv_M_to_ft(gps_msl), 1))
+
+                            # Select the correct pressure/GPS altitude for coordinates
+                            coord_alt = gps_msl if self.kml_coord_alt_gps else altitude
+
+                            self.max_altitude = coord_alt if self.max_altitude is None or coord_alt > self.max_altitude \
+                                else self.max_altitude
+                            self.min_altitude = coord_alt if self.min_altitude is None or coord_alt < self.min_altitude \
+                                else self.min_altitude
 
                             # KML coordinate tuple
-                            self.kml_coord.append((longitude, latitude, gps_msl if self.kml_coord_alt_gps \
-                                else altitude))
+                            self.kml_coord.append((longitude, latitude, coord_alt))
 
                             #
                             # For trip stats, sum the total distance traveled, max speed, min/max altitude
@@ -358,67 +365,6 @@ class Dbi3Log:
         return latlon
 
 
-class Dbi3ConversionConfig:
-    """Dbi3 conversion config settings.
-
-    Set default values,
-    overrides with optional constructor parameters,
-    overrides with optional metadata config file.
-    In that order.
-    """
-
-    def __init__(self, filename,
-                 altitudemode=None, altitude_offset=None,
-                 extend_to_ground=None, verbose=None,
-                 fields_choice=None,
-                 kml_use_metric=None):
-        """
-
-        :param str filename: The full path to the log file, used to compute metadata filename
-        :param altitudemode:
-        :param float altitude_offset: pressure altitude offset in meters
-        :param extend_to_ground: set KML flag to extend track display to the ground
-        :param verbose:
-        :param fields_choice: list of extra data fields to include in the KML
-        :param kml_use_metric: if true, don't convert extra data fields to ft,mile,F,fps
-        """
-
-        # Establish config defaults
-        self.altitudemode = "absolute"
-        self.altitude_offset = None  # floating point
-        self.extend_to_ground = True
-        self.kml_fields = DBI_DEFAULT_LOG_FIELDS
-        self.kml_use_metric = False
-        self.prefer_msl = True  # True=prefer GPS altitude if available
-        self.verbose = False
-        self.trim_start_time = None
-        self.trim_end_time = None
-        self.track_note = None
-
-        # Override defaults with optional parameters
-        if altitudemode is not None: self.altitudemode = altitudemode
-        if altitude_offset is not None: self.altitude_offset = altitude_offset
-        if extend_to_ground is not None: self.extend_to_ground = extend_to_ground
-        if fields_choice is not None: self.kml_fields = fields_choice
-        if kml_use_metric is not None: self.kml_use_metric = kml_use_metric
-        if verbose is not None: self.verbose = verbose
-
-        # Optional override config from a metadata config file
-        self.log_meta = os.path.join(os.path.dirname(filename), '.' + os.path.splitext(os.path.basename(filename))[0])
-        if os.path.isfile(self.log_meta):
-            # This log file has persisted meta data, get the config options
-            with open(self.log_meta, 'r') as meta:
-                data = json.load(meta)
-            for fld in METADATA_CONFIG_ATTR:
-                if fld in data:
-                    setattr(self, fld, data[fld])
-            # the trim fields need to be converted to datetime.
-            if self.trim_start_time is not None:
-                self.trim_start_time = datetime.strptime(self.trim_start_time, "%Y%m%d%H%M%S")
-            if self.trim_end_time is not None:
-                self.trim_end_time = datetime.strptime(self.trim_end_time, "%Y%m%d%H%M%S")
-
-
 class Dbi3LogConversion:
     """
     Main class to drive conversions.
@@ -426,35 +372,23 @@ class Dbi3LogConversion:
     Parse the DBI3 log file, then provide methods to output various conversion formats.
     """
 
-    def __init__(self, filename, sn=None,
-                 altitudemode=None, altitude_offset=None,
-                 extend_to_ground=None, verbose=None,
-                 fields_choice=None,
-                 kml_use_metric=None):
+    def __init__(self, filename, config):
         """
         Initialize the config object, parse the log file.
 
         :param filename: DBI3 log filename
-        :param sn: DBI3 serial number (read from the DBI3 serial cli)
-        :param altitudemode:
-        :param altitude_offset:
-        :param extend_to_ground:
-        :param verbose:
-        :param fields_choice:
-        :param kml_use_metric:
+        :param Dbi3ConfigOptions config:  Application options object
         """
 
         self.filename = filename
-        self.dbi3_sn = sn
 
-        self.config = Dbi3ConversionConfig(filename,
-                                           altitudemode=altitudemode, altitude_offset=altitude_offset,
-                                           extend_to_ground=extend_to_ground, verbose=verbose,
-                                           fields_choice=fields_choice,
-                                           kml_use_metric=kml_use_metric)
+        self.app_config = config
+        self.kml_cfg = Dbi3ConversionOptions(filename, config)
+        if self.app_config.verbose:
+            print('Dbi3LogConversion - kml_cfg - {}'.format(self.kml_cfg))
 
-        self.dbi3_log = Dbi3Log(self.config, self.filename)
-        self.parse_summary = self.dbi3_log.kml_parse()
+        self.dbi3_log = Dbi3Log(self.kml_cfg, self.filename)  # Log object for a specific DBI3 log
+        self.parse_summary = self.dbi3_log.dbi3_log_parse()
 
     def log_summary(self):
         """Return the summary generated during initial log_parse()"""
@@ -477,7 +411,7 @@ class Dbi3LogConversion:
         #
         # Determine unit conversion for additional data fields
         # Allow additional data fields to be english or metric
-        if not self.config.kml_use_metric:
+        if not self.kml_cfg.kml_use_metric:
             temp_is_f = True     # False=centegrade
             alt_is_ft = True     # False=meters
             spd_is_mph = True    # False=kph
@@ -487,8 +421,6 @@ class Dbi3LogConversion:
             roc_is_fps = False
             spd_is_mph = False
             alt_is_ft = False
-
-        debug = False
 
         # check the status of the log_parse()
         if self.dbi3_log.data_recs == 0:
@@ -518,8 +450,8 @@ class Dbi3LogConversion:
         e_hr, remainder = divmod(int((self.dbi3_log.kml_end_time - self.dbi3_log.kml_start_time).total_seconds()), 3600)
         e_min, e_sec = divmod(remainder, 60)
 
-        if self.config.track_note:
-            t_note = '<b>{}</b>\n'.format(self.config.track_note)
+        if self.kml_cfg.track_note:
+            t_note = '<b>{}</b>\n'.format(self.kml_cfg.track_note)
         else:
             t_note = ''
 
@@ -546,11 +478,11 @@ class Dbi3LogConversion:
                                                                                 self.dbi3_log.max_computed_sog,
                       conv_M_to_mi(self.dbi3_log.max_sog * 60 * 60) if spd_is_mph else self.dbi3_log.max_sog,
                       sogStr,
-                      self.dbi3_log.kml_start_time.isoformat('T'),
-                      self.dbi3_log.kml_end_time.isoformat('T'),
+                      self.dbi3_log.kml_start_time.strftime("%Y-%m-%d %H:%M:%S"),
+                      self.dbi3_log.kml_end_time.strftime("%Y-%m-%d %H:%M:%S"),
                       e_hr, e_min, e_sec,
-                      self.dbi3_sn, self.dbi3_log.dbi3_fwver,
-                      datetime.now().isoformat(' '))
+                      self.app_config.sn, self.dbi3_log.dbi3_fwver,
+                      datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
         #
         # Moving on to KML generation
@@ -558,7 +490,7 @@ class Dbi3LogConversion:
         # Create the KML document
         kml = Kml(open=1, name=self.dbi3_log.kml_start_time.strftime('%Y%m%d_%H%MZ_DBI3'), description=property_table)
 #            doc = kml.newdocument(name=kml_start.strftime('%Y%m%d_%H%MZ_Track'), description=property_table)
-                              # snippet=Snippet('DBI3LogConverter run ' + datetime.now().isoformat(' ')))
+                              # snippet=Snippet('DBI3LogConversion run ' + datetime.now().isoformat(' ')))
         doc = kml
         # kml timespan is based on the first and last valid data record, not DBI3 log start/end.
         # doc.lookat.gxtimespan.begin = kml_start.isoformat('T')
@@ -577,27 +509,27 @@ class Dbi3LogConversion:
             schema.newgxsimplearrayfield(name='g_alt', type=Types.float, displayname='GPS ALT ' + altStr)
         if add_pressure_alt:
             schema.newgxsimplearrayfield(name='p_alt', type=Types.float, displayname='PRES ALT ' + altStr)
-        if 'AMBT' in self.config.kml_fields:
+        if 'AMBT' in self.kml_cfg.kml_fields:
             schema.newgxsimplearrayfield(name='a_temp', type=Types.float, displayname='Ambient ' + tempStr)
-        if 'TOPT' in self.config.kml_fields:
+        if 'TOPT' in self.kml_cfg.kml_fields:
             schema.newgxsimplearrayfield(name='t_temp', type=Types.float, displayname='Top ' + tempStr)
-        if 'DIFF' in self.config.kml_fields:
+        if 'DIFF' in self.kml_cfg.kml_fields:
             schema.newgxsimplearrayfield(name='d_temp', type=Types.float, displayname='Diff ' + tempStr)
-        if 'COG' in self.config.kml_fields:
+        if 'COG' in self.kml_cfg.kml_fields:
             schema.newgxsimplearrayfield(name='cog', type=Types.float, displayname='COG')
-        if 'SOG' in self.config.kml_fields:
+        if 'SOG' in self.kml_cfg.kml_fields:
             schema.newgxsimplearrayfield(name='sog', type=Types.float, displayname='SOG ' + sogStr)
-        if 'ROC' in self.config.kml_fields:
+        if 'ROC' in self.kml_cfg.kml_fields:
             schema.newgxsimplearrayfield(name='roc', type=Types.float, displayname='ROC ' + rocStr)
-        if 'BATM' in self.config.kml_fields:
+        if 'BATM' in self.kml_cfg.kml_fields:
             schema.newgxsimplearrayfield(name='batm', type=Types.float, displayname='BAT V')
-        if 'BRDT' in self.config.kml_fields:
+        if 'BRDT' in self.kml_cfg.kml_fields:
             schema.newgxsimplearrayfield(name='brdt', type=Types.float, displayname='BRD ' + tempStr)
 
         # Create a new track in the folder
         trk = fol.newgxtrack(name=self.dbi3_log.kml_start_time.strftime('%Y%m%d_%H%MZ Track'),
-                             altitudemode=self.config.altitudemode,  # absolute, clampToGround, relativeToGround
-                             extrude=self.config.extend_to_ground,
+                             altitudemode=self.kml_cfg.altitudemode,  # absolute, clampToGround, relativeToGround
+                             extrude=self.kml_cfg.extend_to_ground,
                              description=property_table)
         trk.lookat.gxtimespan.begin = self.dbi3_log.kml_start_time.isoformat('T')
         trk.lookat.gxtimespan.end = self.dbi3_log.kml_end_time.isoformat('T')
@@ -630,21 +562,21 @@ class Dbi3LogConversion:
             trk.extendeddata.schemadata.newgxsimplearraydata('g_alt', self.dbi3_log.kml_gps_msl)
         if add_pressure_alt:
             trk.extendeddata.schemadata.newgxsimplearraydata('p_alt', self.dbi3_log.kml_alt)
-        if 'AMBT' in self.config.kml_fields:
+        if 'AMBT' in self.kml_cfg.kml_fields:
             trk.extendeddata.schemadata.newgxsimplearraydata('a_temp', self.dbi3_log.kml_a_temp)
-        if 'TOPT' in self.config.kml_fields:
+        if 'TOPT' in self.kml_cfg.kml_fields:
             trk.extendeddata.schemadata.newgxsimplearraydata('t_temp', self.dbi3_log.kml_t_temp)
-        if 'DIFF' in self.config.kml_fields:
+        if 'DIFF' in self.kml_cfg.kml_fields:
             trk.extendeddata.schemadata.newgxsimplearraydata('d_temp', self.dbi3_log.kml_diff_t)
-        if 'COG' in self.config.kml_fields:
+        if 'COG' in self.kml_cfg.kml_fields:
             trk.extendeddata.schemadata.newgxsimplearraydata('cog', self.dbi3_log.kml_cog)
-        if 'SOG' in self.config.kml_fields:
+        if 'SOG' in self.kml_cfg.kml_fields:
             trk.extendeddata.schemadata.newgxsimplearraydata('sog', self.dbi3_log.kml_sog)
-        if 'ROC' in self.config.kml_fields:
+        if 'ROC' in self.kml_cfg.kml_fields:
             trk.extendeddata.schemadata.newgxsimplearraydata('roc', self.dbi3_log.kml_roc)
-        if 'BATM' in self.config.kml_fields:
+        if 'BATM' in self.kml_cfg.kml_fields:
             trk.extendeddata.schemadata.newgxsimplearraydata('batm', self.dbi3_log.kml_batm)
-        if 'BRDT' in self.config.kml_fields:
+        if 'BRDT' in self.kml_cfg.kml_fields:
             trk.extendeddata.schemadata.newgxsimplearraydata('brdt', self.dbi3_log.kml_brdt)
 
         # Styling
@@ -763,39 +695,37 @@ class Dbi3KmlList:
     Allows editing of the selections.  The list can then be used to drive multiple conversions.
     """
 
-    def __init__(self, log_path, dbi3_sn, kml_path, age_limit=None, verbose=False):
+    def __init__(self, config):
         """
 
-        :param str log_path:  File system path to the DBI3 log files
-        :param str kml_path:  File system path to the DBI3 KML files
-        :param datetime age_limit: optional age limit, log files older are not considered for conversion
-        :param bool verbose:  enable verbose program flow messages
+        :param Dbi3ConfigOptions config:  Application config object
         """
-        self.log_path = log_path
-        self.dbi3_sn = dbi3_sn
-        self.kml_path = kml_path
-        self.age_limit = age_limit
+        self.app_config = config
+        self.log_sn_path = os.path.join(config.log_path, config.sn)
         self.conversion_list = []
-        self.verbose = verbose
         self.debug = False
         self.new_limit = None
-        # The determine "new" KML we need to know the latest KML in kml_path
+
+        # To determine "new" KML we need to know the latest KML in kml_path
         dt = None
-        for item in sorted(os.listdir(self.kml_path), reverse=True):
-            if not os.path.isfile(os.path.join(self.kml_path, item)):
+        for item in sorted(os.listdir(config.kml_path), reverse=True):
+            if not os.path.isfile(os.path.join(config.kml_path, item)):
                 continue
             try:
-                dt = datetime.strptime(item, "%Y%m%d_%H%M_{}.kml".format(dbi3_sn))
+                # This strptime also verifies the filename format
+                dt = datetime.strptime(item, "%Y%m%d_%H%M_{}.kml".format(config.sn))
             except ValueError as e:
+                # Could be the kml didn't match our current SN for logs
                 if self.debug:
                     print(('Parse error of {}:{}'.format(item, e.message)))
+                continue
             if dt is not None:
                 self.new_limit = dt.replace(tzinfo=utc) + timedelta(minutes=1)  # make new_limit timezone aware
-                if self.verbose:
-                    print('DBI3 new KML file threshold: {}'.format(self.new_limit))
+                if config.verbose:
+                    print('DBI3 KML computed new file threshold: {}'.format(self.new_limit))
                 break
 
-    def refresh_list(self, new_logs_only=False):
+    def refresh_list(self):
         """Builds list of available LOG files and selects those without a corresponding KML conversion.
 
         For each DBI3 log file, if the corresponding kml file does not exists,
@@ -804,10 +734,11 @@ class Dbi3KmlList:
         :return list,ConversionList:
         """
         dt_limit = None
-        if new_logs_only and self.new_limit is not None:
+        # new_logs overrides any age_limit on list generation
+        if self.app_config.CLI_new_logs and self.new_limit is not None:
             dt_limit = self.new_limit
-        elif self.age_limit is not None:
-            dt_limit = self.age_limit
+        elif self.app_config.CLI_age_limit is not None:
+            dt_limit = self.app_config.CLI_age_limit
 
         self.conversion_list = []
         # If we have an age limit, construct a matching filename for comparison
@@ -815,24 +746,26 @@ class Dbi3KmlList:
         if dt_limit is not None:
             age_limit_name = dt_limit.strftime('%Y_%m_%d_%H_%M_%S.log')
 
+        # regex to extract timestamp fields from DBI3 log name format
         prog = re.compile('^(\d{4})_(\d\d)_(\d\d)_(\d\d)_(\d\d)_(\d\d).log$')
-        for item in sorted(os.listdir(self.log_path)):
-            match = prog.match(item)
-            log_filename = os.path.join(self.log_path, item)
-            if match and os.path.isfile(log_filename) and (age_limit_name is None or item > age_limit_name):
-                # item matches the re, is a file, and exceeds the age limit if defined
+        for log_name in sorted(os.listdir(self.log_sn_path)):
+            name_parts = prog.match(log_name)
+            log_filename = os.path.join(self.log_sn_path, log_name)
+            if name_parts is not None and os.path.isfile(log_filename) and (
+                    age_limit_name is None or log_name > age_limit_name):
+                # log_name matches the re, is a file, and exceeds the age limit if defined
                 selected = False
                 data = None
-                kml_name = match.expand('\\1\\2\\3_\\4\\5_') + self.dbi3_sn
-                kml_filename = os.path.join(self.kml_path, kml_name)
-                log_metaname = os.path.join(self.log_path, '.' + item[0:-4])
+                kml_name = name_parts.expand('\\1\\2\\3_\\4\\5_') + self.app_config.sn
+                kml_filename = os.path.join(self.app_config.kml_path, kml_name)
+                log_metaname = os.path.join(self.log_sn_path, '.' + log_name[0:-4])  # create metadata name from log name
                 if not os.path.isfile(kml_filename + '.kml'):
                     selected = True
                 if os.path.isfile(log_metaname):
                     # meta file data to override some conversion settings
                     with open(log_metaname, 'r') as meta:
                         data = json.load(meta)
-                self.conversion_list.append(ConversionList(log_name=item,
+                self.conversion_list.append(ConversionList(log_name=log_name,
                                                            log_filename=log_filename,
                                                            kml_name=kml_name,
                                                            kml_filename=kml_filename,

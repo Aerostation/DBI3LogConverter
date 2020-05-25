@@ -1,6 +1,8 @@
 #!/usr/bin/python
 # vim: set sw=4 st=4 ai expandtab:
 """
+Classes to download and/or delete DBI3 log files on the DBI3
+
 DBI3 log names are the encoded start and end times of the log.
 
 DBI3 log list consists of 2 7-character strings representing the start and end time.
@@ -30,13 +32,15 @@ after the command and use the 'md mach' 'ok/nok' response as the command EOF.
 import os
 import serial
 from serial.tools.list_ports import comports
-from datetime import datetime, timedelta, tzinfo
+from datetime import datetime, timedelta
 import json
 
 try:
     from dbi3_common import LogList, utc
+    from dbi3_config_options import Dbi3ConfigOptions
 except ImportError:
     from .dbi3_common import LogList, utc
+    from .dbi3_config_options import Dbi3ConfigOptions
 
 __version__ = '0.1.alpah1'
 
@@ -64,39 +68,37 @@ class DBI3LogDownload:
     RESP_NOK = ['nok']
     RESP_ANY = ['ok', 'nok']
 
-
-
-    def __init__(self, log_path='/tmp/DBI3', com_port=None, verbose=False, age_limit=None, valid_only=False):
+    def __init__(self, app_config):
         """Initialize DBI3LogDownload and serial port.
         If called without a serial port parameter, attempt to find a USE serial port with the
         correct USB VID:PID that answers the 'sn' command.
         """
-        self.log_path = log_path
-        self.com_port = com_port
-        self.verbose = verbose
-        self.age_limit = age_limit
+        self.app_config = app_config
+        self.log_path = app_config.log_path
+        self.com_port = app_config.com_port
+        self.verbose = app_config.verbose
+        self.age_limit = None
         self.debug = False
         self.serial_fd = None  # initialized to the serial file descriptor for the DBI3 serial comm port
-        self.dbi3_sn = None  # will contain the DBI serial number when the port is opened.
-        self.valid_only = valid_only
+        self.dbi3_sn = None  # will contain the DBI serial number when the port is opened/initialized.
+        self.valid_only = app_config.CLI_skip_invalid
 
         self.readline_buf = bytearray()  # init buffer for our block mode readline
-        if log_path is None or not os.path.isdir(log_path):
-            raise IOError('Log file path {} does not exist.'.format(log_path))
-        if com_port is None:
+        if app_config.log_path is None or not os.path.isdir(app_config.log_path):
+            raise IOError('Log file path {} does not exist.'.format(app_config.log_path))
+        if self.com_port is None:
             # try to find the appropriate DBI3 comm port by USB VID:PID for FTDI FT230X
             for c_p in comports():
                 if c_p.vid == 0x0403 and c_p.pid == 0x6015:
-                    if com_port is not None:
+                    if self.com_port is not None:
                         raise IOError('Can not select a DBI3 comm port (duplicate USB VID:PID 0403:6015)')
                     else:
-                        com_port = c_p.device
-            if com_port is None:
+                        self.com_port = c_p.device
+            if self.com_port is None:
                 raise IOError('Can not find a DBI3 comm port (USB VID:PID 0403:6015)')
-            self.com_port = com_port
             print('DBI3 auto selected port {}'.format(self.com_port))
-        elif not os.path.exists(com_port):
-            raise IOError("Comm port {} does not exist.".format(com_port))
+        elif not os.path.exists(self.com_port):
+            raise IOError("Comm port {} does not exist.".format(self.com_port))
         self.__initialize_dbi3_serial_port()
 
     @staticmethod
@@ -226,7 +228,7 @@ class DBI3LogDownload:
             raise IOError('cmd:{} expect:{} got:{}'.format(cmd, allowed_resp, res))
         return res
 
-    def get_DBI3_log_list(self, new_logs_only=False):
+    def get_DBI3_log_list(self, new_logs_only=None):
         """Retrieve the sorted DBI3 log list.
 
         Log names consist of 2 strings containing the log start/end times in DOS FAT
@@ -239,11 +241,15 @@ class DBI3LogDownload:
         for corresponding log files and automatically select (mark download=True) each
         new DBI3 log.  Also retrieve any conversion metadata file for each log.
 
+        :param bool new_logs_only:  overrides app_config filter setting for non-interactive sync
         :return list,namedtuple LogList: - LogList elements
             each list element named tuple of name_start=radix26_start, name_end=radix26_end,
             start_dt=start_datetime, end_dt=end_datetime, log_name=constructed log file name,
             download=True/False, metadata=None or conversion metadata.
         """
+        if new_logs_only is None:  # optional param will override app_config
+            new_logs_only = self.app_config.CLI_new_logs
+
         self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
         self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
 
@@ -254,8 +260,8 @@ class DBI3LogDownload:
         dt_limit = None
         if new_logs_only and self.new_limit is not None:
             dt_limit = self.new_limit
-        elif self.age_limit is not None:
-            dt_limit = self.age_limit
+        elif self.app_config.CLI_age_limit is not None:
+            dt_limit = self.app_config.CLI_age_limit
         log_list = []
 
         if self.verbose:
@@ -273,17 +279,17 @@ class DBI3LogDownload:
                 continue
             stop_dt = self.__fat_to_datetime(rs[1])
 
+            log_basename = start_dt.strftime('%Y_%m_%d_%H_%M_%S')
+            log_name = log_basename + '.log'
+            log_metaname = '.' + log_basename  # hidden filename for conversion metadata
+
             if self.valid_only:
                 # Without download we can't determine if there are GPS records, we can only
                 # base "valid" on a time delta.
                 if stop_dt - start_dt < timedelta(seconds=3):
                     if self.verbose:
-                        print('IGNORE LOG {} due to short duration'.format(rs[0]))
+                        print('IGNORE LOG {} ({}) due to short duration'.format(rs[0], log_basename))
                     continue
-
-            log_basename = start_dt.strftime('%Y_%m_%d_%H_%M_%S')
-            log_name = log_basename + '.log'
-            log_metaname = '.' + log_basename  # hidden filename for conversion metadata
 
             log_file = os.path.join(p_path, log_name)
             log_metafile = os.path.join(p_path, log_metaname)
@@ -305,14 +311,8 @@ class DBI3LogDownload:
         print('DBI3 Log list length {}'.format(len(log_list)))
         if self.verbose:
             for rs in log_list:
-                log_file = os.path.join(self.log_path, rs[4])
-
-                if os.path.isfile(log_file):
-                    file_exists = True
-                else:
-                    file_exists = False
-                print('LOG-{} {}  duration {}  new_file:{}  edits:{}'.format('   ' if file_exists else 'new', rs[2],
-                                                                             rs[3] - rs[2], rs.new_file, rs.override))
+                print('LOG-{}  duration {}  new_file:{}  edits:{}'.format(rs[2], rs[3] - rs[2],
+                                                                          rs.new_file, rs.override))
 
         return log_list
 
@@ -322,11 +322,11 @@ class DBI3LogDownload:
         self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
 
         self.serial_fd.write(str.encode('fs del {}\r'.format(name)))
-        oldTimeout = self.serial_fd.timeout
+        orig_timeout = self.serial_fd.timeout
         # DELETE appears to have no response, so a "md mach" is queued to produce an OK/NOK
         self.serial_fd.timeout = 20
         res = self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
-        self.serial_fd.timeout = oldTimeout
+        self.serial_fd.timeout = orig_timeout
         print('fs delete ({}) result={}'.format(len(res), res))
         return True
 
