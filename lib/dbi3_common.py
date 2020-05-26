@@ -1,4 +1,8 @@
 # vim: set sw=4 st=4 ai expandtab:
+###########################################################################
+# Copyright (C) Aerostation/Ronald Thornton 2020
+# All rights reserved.
+###########################################################################
 """
 DBI3 common definitions/declarations
 

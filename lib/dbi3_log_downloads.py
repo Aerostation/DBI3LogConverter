@@ -1,5 +1,9 @@
 #!/usr/bin/python
 # vim: set sw=4 st=4 ai expandtab:
+###########################################################################
+# Copyright (C) Aerostation/Ronald Thornton 2020
+# All rights reserved.
+###########################################################################
 """
 Classes to download and/or delete DBI3 log files on the DBI3
 
@@ -38,9 +42,11 @@ import json
 try:
     from dbi3_common import LogList, utc
     from dbi3_config_options import Dbi3ConfigOptions
+    from audit_utils import init_logger, get_log
 except ImportError:
     from .dbi3_common import LogList, utc
     from .dbi3_config_options import Dbi3ConfigOptions
+    from .audit_utils import init_logger, get_log
 
 __version__ = '0.1.alpah1'
 
@@ -78,6 +84,7 @@ class DBI3LogDownload:
         self.com_port = app_config.com_port
         self.verbose = app_config.verbose
         self.age_limit = None
+        self.new_limit = None
         self.debug = False
         self.serial_fd = None  # initialized to the serial file descriptor for the DBI3 serial comm port
         self.dbi3_sn = None  # will contain the DBI serial number when the port is opened/initialized.
@@ -419,7 +426,9 @@ class DBI3LogDownload:
                 line_count += 1
                 log_out.write(res + '\n')
                 res = self.__readDbi3Line()
-        print('LOG download-{} ({} records in {})'.format(log_name, line_count, datetime.now() - beg_down))
+        minutes, seconds = divmod((datetime.now() - beg_down).total_seconds(), 60)
+        minutes = int(minutes)
+        get_log().info('LOG download-{} ({} records in {:02d}:{:06.3f})'.format(log_name, line_count, minutes, seconds))
 
     def download_selected_logs(self, log_list):
         """Access DBI3 via the serial port and download new log files.

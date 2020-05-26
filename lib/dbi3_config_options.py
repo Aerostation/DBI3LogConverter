@@ -1,4 +1,8 @@
 # vim: set shiftwidth=4 softtabstop=4 autoindent expandtab:
+###########################################################################
+# Copyright (C) Aerostation/Ronald Thornton 2020
+# All rights reserved.
+###########################################################################
 """Application and Conversion configuration option objects"""
 
 from __future__ import print_function

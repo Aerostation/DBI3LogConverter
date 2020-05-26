@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 # vim: set shiftwidth=4 softtabstop=4 autoincrement expandtab:
+###########################################################################
+# Copyright (C) Aerostation/Ronald Thornton 2020
+# All rights reserved.
+###########################################################################
 """Classes to parse and convert DBI3 log files"""
 
 from __future__ import print_function

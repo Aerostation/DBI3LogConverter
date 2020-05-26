@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 # vim: set shiftwidth=4 softtabstop=4 autoindent expandtab:
+###########################################################################
+# Copyright (C) Aerostation/Ronald Thornton 2018-2020
+# All rights reserved.
+###########################################################################
 """Drive the DBI3 log downloads and conversions to KML
 
 It can run interactively with CLI menus or --sync will run automatically to find a DBI3
@@ -10,23 +14,29 @@ to KML for that DBI3 SN.
 # TODO Log download and conversions to rolling journal for historical reference.  Include edits
 # TODO GPS Altitude field entered after fw ver 1.2 so we need to handle as optional
 from __future__ import print_function
+import os
 import argparse
 import cmd
 import glob
 import sys
-
-from __version__ import __version__
+from datetime import datetime, timedelta
 
 try:  # Handle either python 2/3 import syntax
-    from dbi3_log_conversion import *
-    from dbi3_log_downloads import *
-    from dbi3_common import utc, DBI_ALL_LOG_FIELDS, DBI_DEFAULT_LOG_FIELDS, DBI_CONF_FILE, DEF_LOG_PATH, DEF_KML_PATH
-    from dbi3_config_options import Dbi3ConfigOptions
+    from lib.dbi3_log_conversion import Dbi3KmlList, Dbi3LogConversion
+    from lib.dbi3_log_downloads import DBI3LogDownload
+    from lib.dbi3_common import utc, DBI_ALL_LOG_FIELDS, DBI_DEFAULT_LOG_FIELDS, DBI_CONF_FILE, DEF_LOG_PATH, \
+        DEF_KML_PATH
+    from lib.dbi3_config_options import Dbi3ConfigOptions
+    from lib.audit_utils import init_logger, get_log
 except ImportError:
-    from .dbi3_log_conversion import *
-    from .dbi3_log_downloads import *
-    from .dbi3_common import utc, DBI_ALL_LOG_FIELDS, DBI_DEFAULT_LOG_FIELDS, DBI_CONF_FILE, DEF_LOG_PATH, DEF_KML_PATH
-    from .dbi3_config_options import Dbi3ConfigOptions
+    from lib.dbi3_log_conversion import Dbi3KmlList, Dbi3LogConversion
+    from lib.dbi3_log_downloads import DBI3LogDownload
+    from lib.dbi3_common import utc, DBI_ALL_LOG_FIELDS, DBI_DEFAULT_LOG_FIELDS, DBI_CONF_FILE, DEF_LOG_PATH, \
+        DEF_KML_PATH
+    from lib.dbi3_config_options import Dbi3ConfigOptions
+    from lib.audit_utils import init_logger, get_log
+
+from lib.__version__ import __version__
 
 try:  # Handle input for python 2/3
     input = raw_input
@@ -34,6 +44,7 @@ except NameError:
     pass
 
 app_config = None  # App configuration object
+
 _CLI_age_limit_days = None
 
 # The concept of "new" files is based on the latest stored log/kml, not simply old missing files.
@@ -55,19 +66,19 @@ def convert_new_logs(app_config):
             dbi3_obj = Dbi3LogConversion(le.log_filename, app_config)
             rtn, rtn_str = dbi3_obj.kml_convert(le.kml_filename)
             if rtn < 0:
-                print('Convert FAILED {} to KML  new:{}  edits:{}   to {}\n{}'.format(le.log_name,
+                get_log().info('Convert FAILED {} to KML  new:{}  edits:{}   to {}\n{}'.format(le.log_name,
                                                                                       'Y' if le.new_file else 'N',
                                                                                       le.override,
                                                                                       le.kml_name,
                                                                                       rtn_str))
             elif rtn > 0 and app_config.verbose:
                 # not converted warning (probably no GPS data)
-                print('Convert {} to KML  new:{}  edits:{}\n{}'.format(le.log_name,
+                get_log().info('Convert {} to KML  new:{}  edits:{}\n{}'.format(le.log_name,
                                                                        'Y' if le.new_file else 'N',
                                                                        le.override,
                                                                        rtn_str))
             elif rtn == 0:
-                print('Converted {} to KML  new:{}  edits:{}\n{}'.format(le.log_name,
+                get_log().info('Converted {} to KML  new:{}  edits:{}\n{}'.format(le.log_name,
                                                                          'Y' if le.new_file else 'N',
                                                                          le.override,
                                                                          rtn_str))
@@ -119,6 +130,8 @@ def filter_text():
     if app_config.CLI_skip_invalid: fl.append('skip_invalid')
     if app_config.CLI_age_limit: fl.append('after-{}'.format(app_config.CLI_age_limit.strftime('%Y_%m_%d_%H_%M_%S')))
     return ':'.join(fl)
+
+Cmd_exit = False  # To allow Cmd exit to bubble up from nested commands, we use this global.
 
 
 class Dbi3InteractiveCommandLine(cmd.Cmd):
@@ -214,6 +227,7 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
             Dbi3LogListCommands().cmdloop()
         except IOError as e:
             print('Can not access DBI3: {}'.format(e))
+        return Cmd_exit  # Global flag to indicate exit from nested Cmd
 
     def do_kml(self, line):
         """Select and convert logs to KML.
@@ -247,6 +261,7 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
                 print('Can not select line [{}]: {}\n'.format(new_val, e.message))
                 return
         Dbi3KmlConversionCommands(process_sn).cmdloop()
+        return Cmd_exit  # Global to indicate exit from nested Cmd
 
     def do_EOF(self, line):
         """Exit"""
@@ -327,11 +342,11 @@ Selected logs are marked with "*" after the line number.
                 dbi3_obj = Dbi3LogConversion(os.path.join(p_path, le[1].log_name), app_config)
                 rtn, rtn_str = dbi3_obj.kml_convert(os.path.join(app_config.kml_path, kml_name))
                 if rtn < 0:
-                    print('Convert {} to {} FAILED: {}'.format(le[1].log_name, kml_name, rtn_str))
+                    get_log().info('Convert {} to {} FAILED: {}'.format(le[1].log_name, kml_name, rtn_str))
                 elif rtn > 0 and app_config.verbose:
-                    print('Convert {} to KML : {}'.format(le[1].log_name, rtn_str))
+                    get_log().info('Convert {} to KML : {}'.format(le[1].log_name, rtn_str))
                 elif rtn == 0:
-                    print('Convert {} to KML\n{}'.format(le[1].log_name, rtn_str))
+                    get_log().info('Convert {} to KML\n{}'.format(le[1].log_name, rtn_str))
 
     def do_delete(self, line):
         """Delete the selected log files on the DBI3"""
@@ -347,13 +362,17 @@ Selected logs are marked with "*" after the line number.
         if deleted_log:
             self.do_refresh('')
 
-    def do_EOF(self, line):
-        """back to Main menu"""
+    def do_back(self, line):
+        """Back to Main menu"""
         return True
 
-    def do_exit(self, line):
-        """exit back to Main menu"""
+    def do_EOF(self, line):
+        """Exit program"""
+        global Cmd_exit
+        Cmd_exit = True  # Global to indicate exit from nested Cmd
         return True
+
+    do_exit = do_EOF
 
 
 class Dbi3KmlConversionCommands(cmd.Cmd):
@@ -368,8 +387,10 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
         self.my_list = []
 
     def preloop(self):
+        print('Reading the list of KML files...')
         self.conv_list = Dbi3KmlList(app_config)
         self.do_refresh('')  # Use the refresh command handler to fill the list
+        print('KML list length {}'.format(len(self.my_list)))
         self.do_help('')
 
     def do_help(self, *args):
@@ -450,11 +471,11 @@ Selected logs are marked with "*" after the line number.
                 dbi3_obj = Dbi3LogConversion(le[1].log_filename, app_config)
                 rtn, rtn_str = dbi3_obj.kml_convert(le[1].kml_filename)
                 if rtn < 0:
-                    print('Convert {} to {} FAILED: {}'.format(le[1].log_name, le[1].kml_name, rtn_str))
+                    get_log().info('Convert {} to KML {} FAILED: {}'.format(le[1].log_name, le[1].kml_name, rtn_str))
                 elif rtn > 0 and app_config.verbose:
-                    print('Convert {} to KML: {}'.format(le[1].log_name, rtn_str))
+                    get_log().info('Convert {} to KML: {}'.format(le[1].log_name, rtn_str))
                 elif rtn == 0:
-                    print('Convert {} to KML\n{}'.format(le[1].log_name, rtn_str))
+                    get_log().info('Convert {} to KML\n{}'.format(le[1].log_name, rtn_str))
 
                 # TODO - this is a temporary hack for development
                 #        csv enabled by command line flag
@@ -462,19 +483,23 @@ Selected logs are marked with "*" after the line number.
                     csv_filename = os.path.join(os.path.expanduser('~'), 'Documents', le[1].kml_name + '.csv')
                     rtn, rtn_str = dbi3_obj.csv_convert(csv_filename)
                     if rtn < 0:
-                        print('Convert {} to {} FAILED: {}'.format(le[1].log_name, csv_filename, rtn_str))
+                        get_log().info('Convert {} to CSV {} FAILED: {}'.format(le[1].log_name, csv_filename, rtn_str))
                     elif rtn > 0 and app_config.verbose:
-                        print('Convert {} to CSV: {}'.format(le[1].log_name, rtn_str))
+                        get_log().info('Convert {} to CSV: {}'.format(le[1].log_name, rtn_str))
                     elif rtn == 0:
-                        print('Convert {} to CSV\n{}'.format(le[1].log_name, rtn_str))
+                        get_log().info('Convert {} to CSV\n{}'.format(le[1].log_name, rtn_str))
+
+    def do_back(self, line):
+        """Back to Main menu"""
+        return True
 
     def do_EOF(self, line):
-        """back to Main menu"""
+        """Exit program"""
+        global Cmd_exit
+        Cmd_exit = True  # Global to indicated exit from nested Cmd
         return True
 
-    def do_exit(self, line):
-        """exit back to Main menu"""
-        return True
+    do_exit = do_EOF
 
 
 def process_select_range(line, my_list):
@@ -565,7 +590,6 @@ if __name__ == "__main__":
     2. override by .DBI3config
     3. override by command line
     """
-    global app_config
 
     ap_description = """
 Download and/or convert DBI3 log file(s) to KML format.  The 
@@ -581,6 +605,8 @@ The LOG output is directed to a log_path subdirectory "SNxxxxx/" for the DBI3 se
 format is "YYYY_MM_DD_hh_mm_ss.log".  KML output to the kml_path has a filename format of 
 "YYYYMMDD_hhmm_SNxxxxx.kml".
 """
+
+    # TODO Overwrite a debug log to catch operations and errors of a run.
 
     parser = argparse.ArgumentParser(description=ap_description, epilog=ap_epilog)
     parser.add_argument('--sync', action='store_true', default=False,
@@ -623,7 +649,6 @@ format is "YYYY_MM_DD_hh_mm_ss.log".  KML output to the kml_path has a filename 
                              '{HOME}/Documents directory')
     args = parser.parse_args()
 
-    # TODO getting altitude_offset to conversion for single file option
     # Read the optional config file and update specified settings
     # ==== Command line arguments override the config file without altering the config file
     app_config = Dbi3ConfigOptions(altitudemode=args.altitudemode,
@@ -643,13 +668,14 @@ format is "YYYY_MM_DD_hh_mm_ss.log".  KML output to the kml_path has a filename 
         if args.file.startswith('~/'):
             # Handle HOME directory expansion
             args.file = os.path.join(os.path.expanduser('~'), args.file[2:])
+        args.file = os.path.realpath(args.file)  # clean up the path
         kml_file = os.path.splitext(args.file)[0] + "_DBI3"
         dbi3_obj = Dbi3LogConversion(args.file, app_config)
         rtn, rtn_str = dbi3_obj.kml_convert(kml_file)
         if rtn < 0:
             print('Convert {} to {} FAILED: {}'.format(args.file, kml_file, rtn_str))
         elif rtn > 0 and app_config.verbose:
-            print('Convert {} : {}'.format(args.file, rtn_str))
+            print('Convert {} to KML: {}'.format(args.file, rtn_str))
         elif rtn == 0:
             print('Convert {} to KML\n{}'.format(args.file, rtn_str))
 
@@ -661,6 +687,7 @@ format is "YYYY_MM_DD_hh_mm_ss.log".  KML output to the kml_path has a filename 
                 print('Auto config failed')
                 sys.exit(-2)
 
+        init_logger(app_config=app_config)
         process_dbi()
     else:
         if not os.path.isfile(DBI_CONF_FILE):
@@ -673,4 +700,5 @@ format is "YYYY_MM_DD_hh_mm_ss.log".  KML output to the kml_path has a filename 
             # Regardless of auto_config, drop into config edit.
             print('log_path {} kml_path {}'.format(app_config.log_path, app_config.kml_path))
             app_config.edit_config()
+        init_logger(app_config=app_config)
         Dbi3InteractiveCommandLine().cmdloop()
