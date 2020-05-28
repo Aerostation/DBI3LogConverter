@@ -10,7 +10,6 @@ It can run interactively with CLI menus or --sync will run automatically to find
 serial port, download all new logs for the Serial Number DBI3, then convert all new logs
 to KML for that DBI3 SN.
 """
-# TODO ensure config defaults all work from code, .conf, kml.conf, or cmd line switch
 # TODO Log download and conversions to rolling journal for historical reference.  Include edits
 # TODO GPS Altitude field entered after fw ver 1.2 so we need to handle as optional
 from __future__ import print_function
@@ -44,8 +43,6 @@ except NameError:
     pass
 
 app_config = None  # App configuration object
-
-_CLI_age_limit_days = None
 
 # The concept of "new" files is based on the latest stored log/kml, not simply old missing files.
 
@@ -89,12 +86,7 @@ def process_dbi():
     Download 'new' logs from the DBI3.  Convert 'new' downloaded logs to KML.
     'new' is defined as a log newer than what is currently on the PC.
     """
-    if not os.path.isdir(app_config.log_path):
-        print("Log file path {} does not exist.".format(app_config.log_path))
-        exit()
-    if not os.path.isdir(app_config.kml_path):
-        print("KML file path {} does not exist.".format(app_config.kml_path))
-        exit()
+    _verify_paths()  # ensure log/kml paths exist
 
     down_load = None
     try:
@@ -135,6 +127,8 @@ Cmd_exit = False  # To allow Cmd exit to bubble up from nested commands, we use 
 
 
 class Dbi3InteractiveCommandLine(cmd.Cmd):
+    """Top level Cmd menu.  Application level config and calls logs/kml sub-menus"""
+
     prompt = '(DBI3) '
     my_header = \
         'This is the top level menu of the DBI3 Log Download/Convert application.\n\n' \
@@ -172,9 +166,8 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
     def do_filter(self, line):
         """Filter DBI3 logs in the list - all|new|old|valid|invalid|DD[,...}  where DD=age_limit in days"""
         if line == '':
-            # TODO reformat CLI_age_limit datetime to days
             print('new_logs:{}  age_limit:{} Days  valid_only:{}'.format(app_config.CLI_new_logs,
-                                                                         app_config.CLI_age_limit,
+                                                                         app_config.age_limit,
                                                                          app_config.CLI_skip_invalid))
             return
         for ln in line.split(','):
@@ -197,10 +190,10 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
                 try:
                     age = int(ln)
                     if age <= 0:
-                        _CLI_age_limit_days = None
+                        app_config.age_limit = None
                         app_config.CLI_age_limit = None
                     else:
-                        _CLI_age_limit_days = age
+                        app_config.age_limit = age
                         app_config.CLI_age_limit = (datetime.utcnow() - timedelta(days=age)).replace(tzinfo=utc)
                 except ValueError as e:
                     print('ERROR: unknown filter time {} : {}'.format(ln, e.message))
@@ -273,6 +266,8 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
 
 
 class Dbi3LogListCommands(cmd.Cmd):
+    """DBI3 Log download Cmd menu"""
+
     prompt = '(DBI3:Logs) '
 
     def preloop(self):
@@ -376,6 +371,8 @@ Selected logs are marked with "*" after the line number.
 
 
 class Dbi3KmlConversionCommands(cmd.Cmd):
+    """DBI3 Log to KML conversion menu"""
+
     prompt = '(DBI3:KML) '
 
     def __init__(self, dbi_sn):
@@ -582,6 +579,16 @@ def __verify_log_path(a_path):
     return True
 
 
+def _verify_paths():
+    """Verify the log and kml paths exist or exit the application"""
+    if not os.path.isdir(app_config.log_path):
+        print("Log file path {} does not exist.".format(app_config.log_path))
+        exit()
+    if not os.path.isdir(app_config.kml_path):
+        print("KML file path {} does not exist.".format(app_config.kml_path))
+        exit()
+
+
 if __name__ == "__main__":
     """Main to drive the command line parsing and dispatch.
     
@@ -645,9 +652,11 @@ format is "YYYY_MM_DD_hh_mm_ss.log".  KML output to the kml_path has a filename 
                         help='verbose debug output during processing')
     parser.add_argument('-V', '--version', action='version', version='%(prog)s (' + __version__ + ')')
     parser.add_argument('--csv', action='store_true', default=False,
-                        help='DEVELOPMENT if true, when kml:convert is run it will also output a csv file to the ' +
+                        help='DEVELOPMENT: if true, when kml:convert is run it will also output a csv file to the ' +
                              '{HOME}/Documents directory')
     args = parser.parse_args()
+
+    print('')  # put a blank line before application output
 
     # Read the optional config file and update specified settings
     # ==== Command line arguments override the config file without altering the config file
@@ -659,7 +668,10 @@ format is "YYYY_MM_DD_hh_mm_ss.log".  KML output to the kml_path has a filename 
                                    age_limit=None if args.age_limit is None else int(args.age_limit),
                                    verbose=args.verbose)
 
-    app_config.CLI_age_limit = app_config.age_limit
+    if app_config.age_limit is not None:  # If age_limit is set, create the datetime equivelent
+        app_config.CLI_age_limit = (datetime.utcnow() - timedelta(days=app_config.age_limit)).replace(tzinfo=utc)
+    else:
+        app_config.CLI_age_limit = None
     app_config.CLI_new_logs = app_config.filter_new
     app_config.CLI_skip_invalid = app_config.filter_invalid
     if args.file is not None:
@@ -687,6 +699,7 @@ format is "YYYY_MM_DD_hh_mm_ss.log".  KML output to the kml_path has a filename 
                 print('Auto config failed')
                 sys.exit(-2)
 
+        _verify_paths()
         init_logger(app_config=app_config)
         process_dbi()
     else:
@@ -700,5 +713,7 @@ format is "YYYY_MM_DD_hh_mm_ss.log".  KML output to the kml_path has a filename 
             # Regardless of auto_config, drop into config edit.
             print('log_path {} kml_path {}'.format(app_config.log_path, app_config.kml_path))
             app_config.edit_config()
+
+        _verify_paths()
         init_logger(app_config=app_config)
         Dbi3InteractiveCommandLine().cmdloop()

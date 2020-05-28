@@ -37,7 +37,7 @@ END_FIELDS = ['DATE', 'TIME']
 
 class Dbi3Log:
     """Parses a DBI3 log file into data arrays and computes some
-    values across the log.
+    summary values across the log.
     """
 
     def __init__(self, kml_cfg, filename, sn=None):
@@ -691,7 +691,7 @@ def calc_distance(origin, destination):
 class Dbi3KmlList:
     """Manipulate the list for DBI3 log to KML conversions.
 
-    Constructs a list of available log conversions, defaults the select to new files only.
+    Constructs a list of available log conversions, defaults the select to new log files only.
 
     New files can either be any log that doesn't have a current KML, or only logs later than
     the current latest KML.  Default is the later.

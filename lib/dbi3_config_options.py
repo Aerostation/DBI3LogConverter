@@ -100,7 +100,7 @@ class Dbi3ConfigOptions:
         # log/kml list filter options
         self.CLI_new_logs = True  # only list new files
         self.CLI_skip_invalid = True  # don't list invalid files (bad record counts)
-        self.CLI_age_limit = None  # datetime of the age limit for log/track list outputs
+        self.CLI_age_limit = None  # datetime of the age_limit for log/track list outputs
 
         # Update default configs from the config file
         self._update_config_from_file()
@@ -297,6 +297,7 @@ class Dbi3ConfigOptions:
 
     @staticmethod
     def int_check(param_name, var):
+        """Verify the text is numeric and return the int value (or None)"""
         try:
             return int(var)
         except Exception as e:
