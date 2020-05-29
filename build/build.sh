@@ -51,11 +51,13 @@ PyScript
 )
 
 # Now execute the appropriate pyinstaller command line for the current OS
-if [[ $OS = 'Windows_NT' ]]
-then
-    ( cd app;
-    $PYINSTALLER_CMD --clean --workpath ../build --distpath ../dist --onefile --console DBI3cli
-    )
-else
-    $PYINSTALLER_CMD --clean --distpath ../dist --onefile DBI3cli
-fi
+(
+    cd $DIR/app
+    if [[ $OS = 'Windows_NT' ]]
+    then
+        $PYINSTALLER_CMD --clean --workpath ./work --distpath ./dist --onefile --console DBI3cli
+
+    else
+        $PYINSTALLER_CMD --clean --workpath ./work --distpath ./dist --onefile DBI3cli
+    fi
+)
