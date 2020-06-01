@@ -236,7 +236,7 @@ class Dbi3ConfigOptions:
                     print('Unknown command [{}]\n'.format(new_val))
                     continue
                 except Exception as e:
-                    print('Can not edit line [{}]: {}\n'.format(new_val, e.message))
+                    print('Can not edit line [{}]: {}\n'.format(new_val, e))
                     continue
 
             while True:  # loop on field update until complete or we quit

@@ -208,7 +208,7 @@ class DBI3LogDownload:
                     dt = datetime.strptime(item, "%Y_%m_%d_%H_%M_%S.log")
                 except ValueError as e:
                     if self.debug:
-                        print('Parse error of {}:{}'.format(item, e.message))
+                        print('Parse error of {}:{}'.format(item, e))
                 if dt is not None:
                     self.new_limit = dt.replace(tzinfo=utc) + timedelta(seconds=1)  # make new_limit timezone aware
                     if self.verbose:

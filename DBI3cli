@@ -102,8 +102,9 @@ def process_dbi():
         if down_load is not None and down_load.dbi3_sn is not None:
             sn = down_load.dbi3_sn
         else:
-            sn = 'unknown'
-        print('IO error with DBI3({}) on {}: {}'.format(sn, app_config.com_port, e.message))
+            sn = 'No SN'
+        com = app_config.com_port if app_config.com_port is not None else "NoPort"
+        print('IO error with DBI3({}) on {}: {}'.format(sn, com, e))
         print('Skip DBI3 log downloads')
         return
 
@@ -196,7 +197,7 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
                         app_config.age_limit = age
                         app_config.CLI_age_limit = (datetime.utcnow() - timedelta(days=age)).replace(tzinfo=utc)
                 except ValueError as e:
-                    print('ERROR: unknown filter time {} : {}'.format(ln, e.message))
+                    print('ERROR: unknown filter time {} : {}'.format(ln, e))
                     continue
         print('CURRENT LIST FILTER: [{}]'.format(filter_text()))
 
@@ -240,10 +241,10 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
             print('There are currenly no LOGS available for KML conversion.')
             return
         else:
-            print('AVAILBLE DBI3 LOG SNs:')
+            print('AVAILABLE DBI3 LOG SNs:')
             for i, dbi_sn in enumerate(CLI_sn_list, 1):
                 print('{}  {}'.format(i, dbi_sn))
-            new_val = input('line number of the SerialNumber we should process: ').lower()
+            new_val = input('Select line number of the SerialNumber to process: ').lower()
             try:
                 j = int(new_val)
                 if j < 1 or j > len(CLI_sn_list):
@@ -251,7 +252,7 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
                     return
                 process_sn = CLI_sn_list[j - 1]
             except Exception as e:
-                print('Can not select line [{}]: {}\n'.format(new_val, e.message))
+                print('Can not select line [{}]: {}\n'.format(new_val, e))
                 return
         Dbi3KmlConversionCommands(process_sn).cmdloop()
         return Cmd_exit  # Global to indicate exit from nested Cmd
@@ -454,7 +455,7 @@ Selected logs are marked with "*" after the line number.
             print('Requires a line number to edit from the current list output')
             return
         except Exception as e:
-            print('Unable to edit {}: {}'.format(line, e.message))
+            print('Unable to edit {}: {}'.format(line, e))
             return
 
         print('\nConversion options for: {}'.format(le[1].log_name))

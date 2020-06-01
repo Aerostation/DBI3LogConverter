@@ -721,7 +721,7 @@ class Dbi3KmlList:
             except ValueError as e:
                 # Could be the kml didn't match our current SN for logs
                 if self.debug:
-                    print(('Parse error of {}:{}'.format(item, e.message)))
+                    print(('Parse error of {}:{}'.format(item, e)))
                 continue
             if dt is not None:
                 self.new_limit = dt.replace(tzinfo=utc) + timedelta(minutes=1)  # make new_limit timezone aware
