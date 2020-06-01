@@ -50,14 +50,32 @@ ROADMAP -
 - Automate build version increment
 
 ####BUILD -
+
 Pyinstaller is used to package DBI3cli into a single executable file for Windows 10 and Linux.
+Pyinstaller must be installed before build can run.
+
+The build process is now driven by build/build.sh for both Windows 10 and Linux.  It 
+creates a clean copy of source file in build/app, updates the build version, and runs pyinstaller.
+
+On windows this s done from a "GIT Bash" window (part of Git for Windows https://gitforwindows.org/) which is a Linux
+ like format and has
+git in the PATH for automatic versioning.
+
+From top level of the repo:
+```commandline
+build/build.sh
+```
+The dist and work subdirectories used by pyinstaller are now created in the temporary
+build/app subdirectory.
+
+ORIGINAL PROCEDURE obsoleted by build.sh-
 
 Pyinstaller has an import hook for \__version__.py that constructs the version string from git tag and commit information.  It uses setuptools_scm to do the formatting (usually referenced in setup.py)
 
 BUILD - The Windows 10 conversion to EXE is currently done in a cmd window with
 (pyinstaller hook for __version__ requires "git" be in the windows path now):
 ```command
-set Path=%Path;C:\Program Files\git\bin
+set Path=%Path%;C:\Program Files\git\bin
 cd C:\Users\thornton\Documents\git\DBI3LogConverter
 C:\Python27\Scripts\pyinstaller --clean --workpath ..\build --distpath ..\dist DBI3cli --additional-hooks-dir=hooks
   or
