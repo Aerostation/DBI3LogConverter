@@ -1,6 +1,6 @@
 
 # __version__.py is a generated file and should not be tracked
-lib/__version__.py
+dbi3_access/lib/__version__.py
 
 # ignore python temp files
 *.pyc

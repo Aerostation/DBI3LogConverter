@@ -1,9 +1,8 @@
 #!/bin/bash
 
 # Getting automatic version strings working correctly with both frozen (via pyinstaller) code and development builds
-# has been difficult.  The build script drives pyinstaller using a clean temp directory for the applicaiont file and
-# writes the frozen __version__ file with a __pyinstaller__ flag file so the application doesn't try to runtime
-# update the version via git.
+# has been difficult.  The build script drives pyinstaller using a clean temp directory for the application files and
+# writes the frozen __version__ file.
 
 # This build.sh should be in the repo/build directory
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
@@ -41,12 +40,10 @@ try:
 except UserWarning:
     print('GIT must be in the path for get_version() to work')
 
-with open(os.path.join('build', 'app', 'lib', '__version__.py'), 'w') as v_file:
+with open(os.path.join('build', 'app', 'dbi3_access', 'lib', '__version__.py'), 'w') as v_file:
     print('# dev run generated version from git', file=v_file)
     print('__version__ = "{}"'.format(version), file=v_file)
-with open(os.path.join('build', 'app', '__pyinstaller__.py'), 'w') as v_file:
-    print('__pyinstaller__ = "{}"'.format(py_time), file=v_file)
-print('__version__ = {}  __pyinstaller__ = {}'.format(version, py_time))
+print('__version__ = {} '.format(version))
 PyScript
 )
 
@@ -60,4 +57,9 @@ PyScript
     else
         $PYINSTALLER_CMD --clean --workpath ./work --distpath ./dist --onefile DBI3cli
     fi
+)
+# Now create a python application package
+(
+    cd $DIR/..
+    $PYTHON_CMD setup.py sdist
 )
