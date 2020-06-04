@@ -16,18 +16,8 @@ else
     PYINSTALLER_CMD='pyinstaller'
 fi
 
-# Change to the build dir so relative paths will work.
-cd $DIR
-# Remove any existing temporary application tree and ensure we have the top level dir
-rm -rf ./app
-mkdir ./app
-
-# Now copy application files to the clean app sub-directory for pyinstaller to work on
-cp ../DBI3cli app/
-(cd ..; find . -name '*.py' -not -path './build/*' | xargs cp -p --parent -t build/app)
-
-# Write the pyinstaller __version__ file to the app tree
-( cd ..;  # must run in the repo to execute get_version
+# Update the __version__ file to the latest git tag
+( cd "$DIR/.." || return 1  # must run in the repo to execute get_version
 $PYTHON_CMD - <<PyScript
 from __future__ import print_function
 import os
@@ -40,16 +30,30 @@ try:
 except UserWarning:
     print('GIT must be in the path for get_version() to work')
 
-with open(os.path.join('build', 'app', 'dbi3_access', 'lib', '__version__.py'), 'w') as v_file:
+with open(os.path.join('dbi3_access', 'lib', '__version__.py'), 'w') as v_file:
     print('# dev run generated version from git', file=v_file)
     print('__version__ = "{}"'.format(version), file=v_file)
 print('__version__ = {} '.format(version))
 PyScript
-)
+) || { echo "Create version file failed"; exit 1; }
+
+# Change to the build dir so relative paths will work.
+cd "$DIR" || exit
+# Remove any existing temporary application tree and ensure we have the top level dir
+rm -rf ./app
+mkdir ./app
+
+# Now copy application files to the clean app sub-directory for pyinstaller to work on
+(
+    cd "$DIR/.."
+    cp DBI3cli build/app/
+    find . -name '*.py' -not -path './build/*' -print0 | xargs -0 cp -p --parent -t build/app
+) || { echo "Copy failed"; exit 1; }
 
 # Now execute the appropriate pyinstaller command line for the current OS
+echo "****Run pyinstaller"
 (
-    cd $DIR/app
+    cd "$DIR/app"
     if [[ $OS = 'Windows_NT' ]]
     then
         $PYINSTALLER_CMD --clean --workpath ./work --distpath ./dist --onefile --console DBI3cli
@@ -57,9 +61,10 @@ PyScript
     else
         $PYINSTALLER_CMD --clean --workpath ./work --distpath ./dist --onefile DBI3cli
     fi
-)
+) || echo "Pyinstaller failed"
 # Now create a python application package
+echo "****Run setuptools sdist"
 (
-    cd $DIR/..
+    cd "$DIR/.."
     $PYTHON_CMD setup.py sdist
-)
+) || echo "setuptools sdist failed"
