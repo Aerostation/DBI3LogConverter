@@ -25,14 +25,27 @@ except ImportError:
     from .dbi3_config_options import Dbi3ConfigOptions, Dbi3ConversionOptions
 
 TWO_SECONDS = timedelta(seconds=2)  # time increment between data records
-KML_LINE_COLOR = 'ff0000ff'  # hex aabbggrr
-KML_START_COLOR = 'ff00ff00'
-KML_END_COLOR = 'ff0000ff'
+KML_LINE_COLOR = "ff0000ff"  # hex aabbggrr
+KML_START_COLOR = "ff00ff00"
+KML_END_COLOR = "ff0000ff"
 
 # Required start record, data record, and end record fields - to validate log record content
-START_FIELDS = ['FWVER', 'SN', 'DATE', 'TIME']
-DATA_FIELDS = ['ALT', 'ROC', 'AMBT', 'GPSS', 'SOG', 'COG', 'LONG', 'LAT', 'TOPTS', 'TOPT', 'BATM', 'BRDT']
-END_FIELDS = ['DATE', 'TIME']
+START_FIELDS = ["FWVER", "SN", "DATE", "TIME"]
+DATA_FIELDS = [
+    "ALT",
+    "ROC",
+    "AMBT",
+    "GPSS",
+    "SOG",
+    "COG",
+    "LONG",
+    "LAT",
+    "TOPTS",
+    "TOPT",
+    "BATM",
+    "BRDT",
+]
+END_FIELDS = ["DATE", "TIME"]
 
 
 class Dbi3Log:
@@ -42,7 +55,7 @@ class Dbi3Log:
 
     def __init__(self, kml_cfg, filename, sn=None):
         """Initialize the DBI3LogConversion object
-        
+
         Class will parse DBI3 track data from the log.
 
         :param Dbi3ConversionOptions kml_cfg:
@@ -56,7 +69,7 @@ class Dbi3Log:
         self.kml_cfg = kml_cfg
         self.dbi3_fwver = None
 
-        self.proc_log = ''  # Accumulate print output from the entire conversion
+        self.proc_log = ""  # Accumulate print output from the entire conversion
 
         self.total_log_recs = 0
         self.data_recs = 0
@@ -117,10 +130,10 @@ class Dbi3Log:
         # Determine unit conversion for additional data fields
         # Allow additional data fields to be english or metric
         if not self.kml_cfg.kml_use_metric:
-            temp_is_f = True     # False=centegrade
-            alt_is_ft = True     # False=meters
-            spd_is_mph = True    # False=kph
-            roc_is_fps = True    # False=meters per second
+            temp_is_f = True  # False=centegrade
+            alt_is_ft = True  # False=meters
+            spd_is_mph = True  # False=kph
+            roc_is_fps = True  # False=meters per second
         else:
             temp_is_f = False
             roc_is_fps = False
@@ -144,36 +157,38 @@ class Dbi3Log:
                 self.total_log_recs += 1
                 logvars = {}
                 try:
-                    line = line.rstrip('\r\n')
+                    line = line.rstrip("\r\n")
                     arg_pairs = line.split(" ")
                     for p in arg_pairs:  # type: str
                         var, val = p.split("=")  # type: (str, str)
                         logvars[var] = val
                 except Exception as e:
-                    print('Exception parsing line {} is: {}'.format(line, e))
+                    print("Exception parsing line {} is: {}".format(line, e))
                     self.bad_recs += 1
                     continue
 
-                if 'DATE' in list(logvars.keys()):
+                if "DATE" in list(logvars.keys()):
                     # datetime from a start or end line
-                    log_datetime = datetime.strptime(logvars['DATE'] + ' ' + logvars['TIME'], '%Y-%m-%d %H:%M:%S')
+                    log_datetime = datetime.strptime(
+                        logvars["DATE"] + " " + logvars["TIME"], "%Y-%m-%d %H:%M:%S"
+                    )
                 else:
                     log_datetime = None
 
                 if log_state == 1:  # Expecting the start line from the log file
                     missing_key = self.__field_check(START_FIELDS, logvars)
                     if missing_key is not None:
-                        print('Start record missing field ' + missing_key)
+                        print("Start record missing field " + missing_key)
                         break
                     start_datetime = log_datetime
                     rec_time = log_datetime  # first data record timestamp is start
-                    self.dbi3_fwver = logvars['FWVER']
+                    self.dbi3_fwver = logvars["FWVER"]
                     # fw ver 1.2 had a dummy SN in the log header so we override by extracting from the
                     # DBI3 serial cli, but if that wasn't supplied then use the log field.
                     if self.dbi3_sn is None:
-                        self.dbi3_sn = logvars['SN']
+                        self.dbi3_sn = logvars["SN"]
                     log_state = 2
-                    self.proc_log += '  Start time ' + start_datetime.isoformat(' ')
+                    self.proc_log += "  Start time " + start_datetime.isoformat(" ")
                 elif log_state > 1 and log_datetime is not None:
                     # START record was processed, the next record with a DATE is the END record
                     end_datetime = log_datetime
@@ -181,41 +196,58 @@ class Dbi3Log:
                     if missing_key is None:
                         log_state = 3
                         if self.kml_start_time is not None:
-                            self.proc_log += ' --First GPS record ' + self.kml_start_time.isoformat(' ')
-                        self.proc_log += '\n  Total records={}  data records={}  trim records={}  bad records={}'.\
-                            format(self.total_log_recs, self.data_recs, self.trim_recs, self.bad_recs)
-                        self.proc_log += '\n  End time ' + end_datetime.isoformat(' ')
+                            self.proc_log += (
+                                " --First GPS record " + self.kml_start_time.isoformat(" ")
+                            )
+                        self.proc_log += "\n  Total records={}  data records={}  trim records={}  bad records={}".format(
+                            self.total_log_recs, self.data_recs, self.trim_recs, self.bad_recs
+                        )
+                        self.proc_log += "\n  End time " + end_datetime.isoformat(" ")
                         if self.kml_end_time is not None:
-                            self.proc_log += ' --Last GPS record ' + self.kml_end_time.isoformat(' ')
+                            self.proc_log += " --Last GPS record " + self.kml_end_time.isoformat(
+                                " "
+                            )
                     else:
-                        print('End record missing field ' + missing_key)
+                        print("End record missing field " + missing_key)
                     break
                 else:
                     # This should be a DATA record
                     missing_key = self.__field_check(DATA_FIELDS, logvars)
                     if missing_key is None:
-                        if logvars['GPSS'] == '0':
+                        if logvars["GPSS"] == "0":
                             ####
                             # This is a data record and it has GPS data
                             ####
                             # Check for start/end time trim
-                            if self.kml_cfg.trim_start_time is not None and rec_time < self.kml_cfg.trim_start_time:
+                            if (
+                                self.kml_cfg.trim_start_time is not None
+                                and rec_time < self.kml_cfg.trim_start_time
+                            ):
                                 self.trim_recs += 1
                                 continue
-                            elif self.kml_cfg.trim_end_time is not None and rec_time > self.kml_cfg.trim_end_time:
+                            elif (
+                                self.kml_cfg.trim_end_time is not None
+                                and rec_time > self.kml_cfg.trim_end_time
+                            ):
                                 self.trim_recs += 1
                                 continue
 
                             self.data_recs += 1
 
                             if debug:
-                                print('Record ' + rec_time.isoformat('T') + ' ' + logvars['LAT'] +
-                                      ' ' + logvars['LONG'])
+                                print(
+                                    "Record "
+                                    + rec_time.isoformat("T")
+                                    + " "
+                                    + logvars["LAT"]
+                                    + " "
+                                    + logvars["LONG"]
+                                )
 
                             # calculate and accumulate KML data
-                            latitude = self.__ddmm2d(logvars['LAT'])
+                            latitude = self.__ddmm2d(logvars["LAT"])
                             self.kml_lat.append(latitude)
-                            longitude = self.__ddmm2d(logvars['LONG'])
+                            longitude = self.__ddmm2d(logvars["LONG"])
                             self.kml_lon.append(longitude)
                             # calculate min/max lat and lon so we can construct a display bounding box
                             self.min_lat = min(self.min_lat, latitude)
@@ -223,34 +255,61 @@ class Dbi3Log:
                             self.min_lon = min(self.min_lon, longitude)
                             self.max_lon = max(self.max_lon, longitude)
                             # Append the time and coordinate lists
-                            self.kml_when.append(rec_time.isoformat('T'))
+                            self.kml_when.append(rec_time.isoformat("T"))
 
-                            altitude = float(logvars['ALT'])
-                            if self.kml_cfg.altitude_offset is not None: altitude += self.kml_cfg.altitude_offset
+                            altitude = float(logvars["ALT"])
+                            if self.kml_cfg.altitude_offset is not None:
+                                altitude += self.kml_cfg.altitude_offset
                             self.kml_alt.append(
-                                round(altitude if self.kml_cfg.kml_use_metric else conv_M_to_ft(altitude), 1))
+                                round(
+                                    altitude
+                                    if self.kml_cfg.kml_use_metric
+                                    else conv_M_to_ft(altitude),
+                                    1,
+                                )
+                            )
 
                             # if we have GPS altitude available, determine which we use in the coordinates
-                            if has_msl is None:  # determine if the data record includes GPS altitude
-                                has_msl = logvars.get('MSLALT') is not None
+                            if (
+                                has_msl is None
+                            ):  # determine if the data record includes GPS altitude
+                                has_msl = logvars.get("MSLALT") is not None
                                 # determine if we have and prefer GPS altitude for the track points
                                 self.kml_coord_alt_gps = has_msl and self.kml_cfg.prefer_gps
                             if has_msl:
-                                gps_msl = float(logvars['MSLALT'])
-                                self.max_gps_msl = gps_msl if self.max_gps_msl is None or gps_msl > self.max_gps_msl \
+                                gps_msl = float(logvars["MSLALT"])
+                                self.max_gps_msl = (
+                                    gps_msl
+                                    if self.max_gps_msl is None or gps_msl > self.max_gps_msl
                                     else self.max_gps_msl
-                                self.min_gps_msl = gps_msl if self.min_gps_msl is None or gps_msl < self.min_gps_msl \
+                                )
+                                self.min_gps_msl = (
+                                    gps_msl
+                                    if self.min_gps_msl is None or gps_msl < self.min_gps_msl
                                     else self.min_gps_msl
+                                )
                                 self.kml_gps_msl.append(
-                                    round(gps_msl if self.kml_cfg.kml_use_metric else conv_M_to_ft(gps_msl), 1))
+                                    round(
+                                        gps_msl
+                                        if self.kml_cfg.kml_use_metric
+                                        else conv_M_to_ft(gps_msl),
+                                        1,
+                                    )
+                                )
 
                             # Select the correct pressure/GPS altitude for coordinates
                             coord_alt = gps_msl if self.kml_coord_alt_gps else altitude
 
-                            self.max_altitude = coord_alt if self.max_altitude is None or coord_alt > self.max_altitude \
+                            self.max_altitude = (
+                                coord_alt
+                                if self.max_altitude is None or coord_alt > self.max_altitude
                                 else self.max_altitude
-                            self.min_altitude = coord_alt if self.min_altitude is None or coord_alt < self.min_altitude \
+                            )
+                            self.min_altitude = (
+                                coord_alt
+                                if self.min_altitude is None or coord_alt < self.min_altitude
                                 else self.min_altitude
+                            )
 
                             # KML coordinate tuple
                             self.kml_coord.append((longitude, latitude, coord_alt))
@@ -259,11 +318,16 @@ class Dbi3Log:
                             # For trip stats, sum the total distance traveled, max speed, min/max altitude
                             #
                             if last_lat is not None:
-                                point_dist = calc_distance((last_lat, last_lon), (latitude, longitude))
+                                point_dist = calc_distance(
+                                    (last_lat, last_lon), (latitude, longitude)
+                                )
                                 self.elapsed_dist += point_dist
-                                computed_sog = point_dist / 2.0  # fixed time between point is 2 seconds
+                                # fixed time between points is 2 seconds
+                                computed_sog = point_dist / 2.0
                                 self.max_computed_sog = max(self.max_computed_sog, computed_sog)
-                            last_lat = latitude  # save last lat/lon for the next time thru the loop
+                            last_lat = (
+                                latitude  # save last lat/lon for the next time thru the loop
+                            )
                             last_lon = longitude
 
                             #
@@ -271,33 +335,41 @@ class Dbi3Log:
 
                             # Round floating point data to a reasonable accuracy (e.g. 1 or 2 digit)
                             #
-                            amb_temp = conv_C_to_F(float(logvars['AMBT'])) if temp_is_f else float(logvars['AMBT'])
+                            amb_temp = (
+                                conv_C_to_F(float(logvars["AMBT"]))
+                                if temp_is_f
+                                else float(logvars["AMBT"])
+                            )
                             self.kml_a_temp.append(round(amb_temp, 1))
 
-                            self.kml_bar.append(round(float(logvars['BAR']), 2))
+                            self.kml_bar.append(round(float(logvars["BAR"]), 2))
 
-                            if logvars['TOPTS'] == '1':  # Top temp value is valid
-                                top_temp = conv_C_to_F(float(logvars['TOPT'])) if temp_is_f else float(logvars['TOPT'])
+                            if logvars["TOPTS"] == "1":  # Top temp value is valid
+                                top_temp = (
+                                    conv_C_to_F(float(logvars["TOPT"]))
+                                    if temp_is_f
+                                    else float(logvars["TOPT"])
+                                )
                             else:  # Top temp value is missing
                                 top_temp = MISSING_TOPT_F if temp_is_f else MISSING_TOPT_C
                             self.kml_t_temp.append(round(top_temp, 1))
 
                             self.kml_diff_t.append(round(top_temp - amb_temp, 1))
 
-                            sog = float(logvars['SOG'])
+                            sog = float(logvars["SOG"])
                             self.max_sog = max(self.max_sog, sog)
                             sog = round(conv_M_to_mi(sog * 60 * 60) if spd_is_mph else sog, 1)
                             self.kml_sog.append(sog)
 
-                            self.kml_cog.append(round(float(logvars['COG']), 1))
+                            self.kml_cog.append(round(float(logvars["COG"]), 1))
 
-                            roc = float(logvars['ROC'])
+                            roc = float(logvars["ROC"])
                             roc = round(conv_M_to_ft(roc * 60) if roc_is_fps else roc, 1)
                             self.kml_roc.append(roc)
 
-                            self.kml_batm.append(round(float(logvars['BATM']), 2))
+                            self.kml_batm.append(round(float(logvars["BATM"]), 2))
 
-                            brdt = float(logvars['BRDT'])
+                            brdt = float(logvars["BRDT"])
                             brdt = round(conv_C_to_F(brdt) if temp_is_f else brdt, 2)
                             self.kml_brdt.append(brdt)
                             # Finished a valid data record, capture the first time as kml_start,
@@ -308,7 +380,7 @@ class Dbi3Log:
                                 self.kml_start_lon = longitude
                             self.kml_end_time = rec_time
                     else:
-                        print('Data record missing field ' + missing_key)
+                        print("Data record missing field " + missing_key)
                         self.bad_recs += 1
                     # Do we increment the time before or after the data records?
                     rec_time += TWO_SECONDS
@@ -317,11 +389,13 @@ class Dbi3Log:
 
             rtn_val = self.data_recs if log_state == 3 else -1
 
-            return SummaryList(status=rtn_val,
-                               gps_start=self.kml_start_time,
-                               gps_end=self.kml_end_time,
-                               min_altitude=self.min_altitude,
-                               max_altitude=self.max_altitude)
+            return SummaryList(
+                status=rtn_val,
+                gps_start=self.kml_start_time,
+                gps_end=self.kml_end_time,
+                min_altitude=self.min_altitude,
+                max_altitude=self.max_altitude,
+            )
 
     @staticmethod
     def __field_check(req_fields, myvars):
@@ -360,11 +434,11 @@ class Dbi3Log:
         """
         hemi = dm[-1:]
         dm = dm[:-1]
-        min_dec = dm.find('.')
-        deg = dm[:min_dec - 2]
-        minutes = dm[min_dec - 2:]
+        min_dec = dm.find(".")
+        deg = dm[: min_dec - 2]
+        minutes = dm[min_dec - 2 :]
         latlon = float(deg) + float(minutes) / 60.0
-        if hemi == 'W' or hemi == 'S':
+        if hemi == "W" or hemi == "S":
             latlon = 0.0 - latlon
         return latlon
 
@@ -389,7 +463,7 @@ class Dbi3LogConversion:
         self.app_config = config
         self.kml_cfg = Dbi3ConversionOptions(filename, config)
         if self.app_config.verbose:
-            print('Dbi3LogConversion - kml_cfg - {}'.format(self.kml_cfg))
+            print("Dbi3LogConversion - kml_cfg - {}".format(self.kml_cfg))
 
         self.dbi3_log = Dbi3Log(self.kml_cfg, self.filename)  # Log object for a specific DBI3 log
         self.parse_summary = self.dbi3_log.dbi3_log_parse()
@@ -416,10 +490,10 @@ class Dbi3LogConversion:
         # Determine unit conversion for additional data fields
         # Allow additional data fields to be english or metric
         if not self.kml_cfg.kml_use_metric:
-            temp_is_f = True     # False=centegrade
-            alt_is_ft = True     # False=meters
-            spd_is_mph = True    # False=kph
-            roc_is_fps = True    # False=meters per second
+            temp_is_f = True  # False=centegrade
+            alt_is_ft = True  # False=meters
+            spd_is_mph = True  # False=kph
+            roc_is_fps = True  # False=meters per second
         else:
             temp_is_f = False
             roc_is_fps = False
@@ -428,9 +502,9 @@ class Dbi3LogConversion:
 
         # check the status of the log_parse()
         if self.dbi3_log.data_recs == 0:
-            return 1, 'No GPS data records, skip KML file generations'
+            return 1, "No GPS data records, skip KML file generations"
         elif self.dbi3_log.data_recs < 0:
-            return -1, 'No END record, skip KML file generation'
+            return -1, "No END record, skip KML file generation"
 
         # fw ver 1.3 added GPS altitude.  If we have both we use the preferred (pressure/GPS)
         # altitude in the track points and add the other as an additional data field.
@@ -443,25 +517,31 @@ class Dbi3LogConversion:
                 add_gps_alt = True
 
         # Establish unit of measure strings depending on Metric vs English measures
-        tempStr = 'F' if temp_is_f else 'C'
-        sogStr = 'MPH' if spd_is_mph else 'mps'
-        distStr = 'mi' if spd_is_mph else 'm'
-        rocStr = 'FPM' if roc_is_fps else 'mps'
-        altStr = 'ft' if alt_is_ft else 'm'
+        tempStr = "F" if temp_is_f else "C"
+        sogStr = "MPH" if spd_is_mph else "mps"
+        distStr = "mi" if spd_is_mph else "m"
+        rocStr = "FPM" if roc_is_fps else "mps"
+        altStr = "ft" if alt_is_ft else "m"
 
-        avg_sog = self.dbi3_log.elapsed_dist / (self.dbi3_log.kml_end_time - self.dbi3_log.kml_start_time).total_seconds()  # in meters/second
+        # avg_sog in meters/second
+        avg_sog = (
+            self.dbi3_log.elapsed_dist
+            / (self.dbi3_log.kml_end_time - self.dbi3_log.kml_start_time).total_seconds()
+        )
 
-        e_hr, remainder = divmod(int((self.dbi3_log.kml_end_time - self.dbi3_log.kml_start_time).total_seconds()), 3600)
+        e_hr, remainder = divmod(
+            int((self.dbi3_log.kml_end_time - self.dbi3_log.kml_start_time).total_seconds()), 3600
+        )
         e_min, e_sec = divmod(remainder, 60)
 
         if self.kml_cfg.track_note:
-            t_note = '<b>{}</b>\n'.format(self.kml_cfg.track_note)
+            t_note = "<b>{}</b>\n".format(self.kml_cfg.track_note)
         else:
-            t_note = ''
+            t_note = ""
 
         # Our 'trip computer' values are formatted into a KML description string to be included in
         # the track object.
-        property_table = '''<![CDATA[{}\
+        property_table = """<![CDATA[{}\
 <table>
 <tr><td><b>Distance </b>{:.2f} {}</td><tr>
 <tr><td><b>Min Alt </b>{:.2f} {}</td><tr>
@@ -473,28 +553,42 @@ class Dbi3LogConversion:
 <tr><td><b>Elapsed </b>{:02d}:{:02d}:{:02d}</td><tr>
 <tr><td>DBI3  {}  FWVER {}</td><tr>
 <tr><td>Formatted {}</td><tr>
-</table>]]>'''.format(t_note,
-                      conv_M_to_mi(self.dbi3_log.elapsed_dist) if spd_is_mph else self.dbi3_log.elapsed_dist, distStr,
-                      conv_M_to_ft(self.dbi3_log.min_altitude) if alt_is_ft else self.dbi3_log.min_altitude, altStr,
-                      conv_M_to_ft(self.dbi3_log.max_altitude) if alt_is_ft else self.dbi3_log.max_altitude, altStr,
-                      conv_M_to_mi(avg_sog * 60 * 60) if spd_is_mph else avg_sog, sogStr,
-                      conv_M_to_mi(self.dbi3_log.max_computed_sog * 60 * 60) if spd_is_mph else
-                                                                                self.dbi3_log.max_computed_sog,
-                      conv_M_to_mi(self.dbi3_log.max_sog * 60 * 60) if spd_is_mph else self.dbi3_log.max_sog,
-                      sogStr,
-                      self.dbi3_log.kml_start_time.strftime("%Y-%m-%d %H:%M:%S"),
-                      self.dbi3_log.kml_end_time.strftime("%Y-%m-%d %H:%M:%S"),
-                      e_hr, e_min, e_sec,
-                      self.app_config.sn, self.dbi3_log.dbi3_fwver,
-                      datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+</table>]]>""".format(
+            t_note,
+            conv_M_to_mi(self.dbi3_log.elapsed_dist) if spd_is_mph else self.dbi3_log.elapsed_dist,
+            distStr,
+            conv_M_to_ft(self.dbi3_log.min_altitude) if alt_is_ft else self.dbi3_log.min_altitude,
+            altStr,
+            conv_M_to_ft(self.dbi3_log.max_altitude) if alt_is_ft else self.dbi3_log.max_altitude,
+            altStr,
+            conv_M_to_mi(avg_sog * 60 * 60) if spd_is_mph else avg_sog,
+            sogStr,
+            conv_M_to_mi(self.dbi3_log.max_computed_sog * 60 * 60)
+            if spd_is_mph
+            else self.dbi3_log.max_computed_sog,
+            conv_M_to_mi(self.dbi3_log.max_sog * 60 * 60) if spd_is_mph else self.dbi3_log.max_sog,
+            sogStr,
+            self.dbi3_log.kml_start_time.strftime("%Y-%m-%d %H:%M:%S"),
+            self.dbi3_log.kml_end_time.strftime("%Y-%m-%d %H:%M:%S"),
+            e_hr,
+            e_min,
+            e_sec,
+            self.app_config.sn,
+            self.dbi3_log.dbi3_fwver,
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        )
 
         #
         # Moving on to KML generation
 
         # Create the KML document
-        kml = Kml(open=1, name=self.dbi3_log.kml_start_time.strftime('%Y%m%d_%H%MZ_DBI3'), description=property_table)
-#            doc = kml.newdocument(name=kml_start.strftime('%Y%m%d_%H%MZ_Track'), description=property_table)
-                              # snippet=Snippet('DBI3LogConversion run ' + datetime.now().isoformat(' ')))
+        kml = Kml(
+            open=1,
+            name=self.dbi3_log.kml_start_time.strftime("%Y%m%d_%H%MZ_DBI3"),
+            description=property_table,
+        )
+        # doc = kml.newdocument(name=kml_start.strftime('%Y%m%d_%H%MZ_Track'), description=property_table)
+        # snippet=Snippet('DBI3LogConversion run ' + datetime.now().isoformat(' ')))
         doc = kml
         # kml timespan is based on the first and last valid data record, not DBI3 log start/end.
         # doc.lookat.gxtimespan.begin = kml_start.isoformat('T')
@@ -510,37 +604,60 @@ class Dbi3LogConversion:
         # Create a schema for extended data
         schema = kml.newschema()
         if add_gps_alt:
-            schema.newgxsimplearrayfield(name='g_alt', type=Types.float, displayname='GPS ALT ' + altStr)
+            schema.newgxsimplearrayfield(
+                name="g_alt", type=Types.float, displayname="GPS ALT " + altStr
+            )
         if add_pressure_alt:
-            schema.newgxsimplearrayfield(name='p_alt', type=Types.float, displayname='PRES ALT ' + altStr)
-        if 'AMBT' in self.kml_cfg.kml_fields:
-            schema.newgxsimplearrayfield(name='a_temp', type=Types.float, displayname='Ambient ' + tempStr)
-        if 'TOPT' in self.kml_cfg.kml_fields:
-            schema.newgxsimplearrayfield(name='t_temp', type=Types.float, displayname='Top ' + tempStr)
-        if 'DIFF' in self.kml_cfg.kml_fields:
-            schema.newgxsimplearrayfield(name='d_temp', type=Types.float, displayname='Diff ' + tempStr)
-        if 'COG' in self.kml_cfg.kml_fields:
-            schema.newgxsimplearrayfield(name='cog', type=Types.float, displayname='COG')
-        if 'SOG' in self.kml_cfg.kml_fields:
-            schema.newgxsimplearrayfield(name='sog', type=Types.float, displayname='SOG ' + sogStr)
-        if 'ROC' in self.kml_cfg.kml_fields:
-            schema.newgxsimplearrayfield(name='roc', type=Types.float, displayname='ROC ' + rocStr)
-        if 'BATM' in self.kml_cfg.kml_fields:
-            schema.newgxsimplearrayfield(name='batm', type=Types.float, displayname='BAT V')
-        if 'BRDT' in self.kml_cfg.kml_fields:
-            schema.newgxsimplearrayfield(name='brdt', type=Types.float, displayname='BRD ' + tempStr)
+            schema.newgxsimplearrayfield(
+                name="p_alt", type=Types.float, displayname="PRES ALT " + altStr
+            )
+        if "AMBT" in self.kml_cfg.kml_fields:
+            schema.newgxsimplearrayfield(
+                name="a_temp", type=Types.float, displayname="Ambient " + tempStr
+            )
+        if "TOPT" in self.kml_cfg.kml_fields:
+            schema.newgxsimplearrayfield(
+                name="t_temp", type=Types.float, displayname="Top " + tempStr
+            )
+        if "DIFF" in self.kml_cfg.kml_fields:
+            schema.newgxsimplearrayfield(
+                name="d_temp", type=Types.float, displayname="Diff " + tempStr
+            )
+        if "COG" in self.kml_cfg.kml_fields:
+            schema.newgxsimplearrayfield(name="cog", type=Types.float, displayname="COG")
+        if "SOG" in self.kml_cfg.kml_fields:
+            schema.newgxsimplearrayfield(name="sog", type=Types.float, displayname="SOG " + sogStr)
+        if "ROC" in self.kml_cfg.kml_fields:
+            schema.newgxsimplearrayfield(name="roc", type=Types.float, displayname="ROC " + rocStr)
+        if "BATM" in self.kml_cfg.kml_fields:
+            schema.newgxsimplearrayfield(name="batm", type=Types.float, displayname="BAT V")
+        if "BRDT" in self.kml_cfg.kml_fields:
+            schema.newgxsimplearrayfield(
+                name="brdt", type=Types.float, displayname="BRD " + tempStr
+            )
 
         # Create a new track in the folder
-        trk = fol.newgxtrack(name=self.dbi3_log.kml_start_time.strftime('%Y%m%d_%H%MZ Track'),
-                             altitudemode=self.kml_cfg.altitudemode,  # absolute, clampToGround, relativeToGround
-                             extrude=self.kml_cfg.extend_to_ground,
-                             description=property_table)
-        trk.lookat.gxtimespan.begin = self.dbi3_log.kml_start_time.isoformat('T')
-        trk.lookat.gxtimespan.end = self.dbi3_log.kml_end_time.isoformat('T')
-        trk.lookat.longitude = self.dbi3_log.max_lon - ((self.dbi3_log.max_lon - self.dbi3_log.min_lon) / 2)
-        trk.lookat.latitude = self.dbi3_log.max_lat - ((self.dbi3_log.max_lat - self.dbi3_log.min_lat) / 2)
-        trk.lookat.range = calc_distance((self.dbi3_log.min_lat, self.dbi3_log.min_lon),
-                                         (self.dbi3_log.max_lat, self.dbi3_log.max_lon)) * 1.5
+        trk = fol.newgxtrack(
+            name=self.dbi3_log.kml_start_time.strftime("%Y%m%d_%H%MZ Track"),
+            altitudemode=self.kml_cfg.altitudemode,  # absolute, clampToGround, relativeToGround
+            extrude=self.kml_cfg.extend_to_ground,
+            description=property_table,
+        )
+        trk.lookat.gxtimespan.begin = self.dbi3_log.kml_start_time.isoformat("T")
+        trk.lookat.gxtimespan.end = self.dbi3_log.kml_end_time.isoformat("T")
+        trk.lookat.longitude = self.dbi3_log.max_lon - (
+            (self.dbi3_log.max_lon - self.dbi3_log.min_lon) / 2
+        )
+        trk.lookat.latitude = self.dbi3_log.max_lat - (
+            (self.dbi3_log.max_lat - self.dbi3_log.min_lat) / 2
+        )
+        trk.lookat.range = (
+            calc_distance(
+                (self.dbi3_log.min_lat, self.dbi3_log.min_lon),
+                (self.dbi3_log.max_lat, self.dbi3_log.max_lon),
+            )
+            * 1.5
+        )
 
         # Apply the above schema to this track
         trk.extendeddata.schemadata.schemaurl = schema.id
@@ -548,46 +665,59 @@ class Dbi3LogConversion:
         #
         # Add all the information to the track
         #
-        trk.newwhen(self.dbi3_log.kml_when)  # Each item in the give nlist will become a new <when> tag
+        # Each item in the give nlist will become a new <when> tag
+        trk.newwhen(self.dbi3_log.kml_when)
         trk.newgxcoord(self.dbi3_log.kml_coord)
 
         # Add points to the start and end of the track
-        pnt = fol.newpoint(name='Start', coords=[(self.dbi3_log.kml_start_lon, self.dbi3_log.kml_start_lat)])
-        pnt.description = self.dbi3_log.kml_start_time.isoformat('T')
+        pnt = fol.newpoint(
+            name="Start", coords=[(self.dbi3_log.kml_start_lon, self.dbi3_log.kml_start_lat)]
+        )
+        pnt.description = self.dbi3_log.kml_start_time.isoformat("T")
         pnt.style.labelstyle.color = KML_START_COLOR
-        pnt.style.iconstyle.icon.href = 'http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png'
-        pnt = fol.newpoint(name='Finish', coords=[(self.dbi3_log.kml_end_lon, self.dbi3_log.kml_end_lat)])
-        pnt.description = self.dbi3_log.kml_end_time.isoformat('T')
+        pnt.style.iconstyle.icon.href = (
+            "http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png"
+        )
+        pnt = fol.newpoint(
+            name="Finish", coords=[(self.dbi3_log.kml_end_lon, self.dbi3_log.kml_end_lat)]
+        )
+        pnt.description = self.dbi3_log.kml_end_time.isoformat("T")
         pnt.style.labelstyle.color = KML_END_COLOR
-        pnt.style.iconstyle.icon.href = 'http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png'
+        pnt.style.iconstyle.icon.href = (
+            "http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png"
+        )
 
         # Add any additional data fields that are requested
         if add_gps_alt:
-            trk.extendeddata.schemadata.newgxsimplearraydata('g_alt', self.dbi3_log.kml_gps_msl)
+            trk.extendeddata.schemadata.newgxsimplearraydata("g_alt", self.dbi3_log.kml_gps_msl)
         if add_pressure_alt:
-            trk.extendeddata.schemadata.newgxsimplearraydata('p_alt', self.dbi3_log.kml_alt)
-        if 'AMBT' in self.kml_cfg.kml_fields:
-            trk.extendeddata.schemadata.newgxsimplearraydata('a_temp', self.dbi3_log.kml_a_temp)
-        if 'TOPT' in self.kml_cfg.kml_fields:
-            trk.extendeddata.schemadata.newgxsimplearraydata('t_temp', self.dbi3_log.kml_t_temp)
-        if 'DIFF' in self.kml_cfg.kml_fields:
-            trk.extendeddata.schemadata.newgxsimplearraydata('d_temp', self.dbi3_log.kml_diff_t)
-        if 'COG' in self.kml_cfg.kml_fields:
-            trk.extendeddata.schemadata.newgxsimplearraydata('cog', self.dbi3_log.kml_cog)
-        if 'SOG' in self.kml_cfg.kml_fields:
-            trk.extendeddata.schemadata.newgxsimplearraydata('sog', self.dbi3_log.kml_sog)
-        if 'ROC' in self.kml_cfg.kml_fields:
-            trk.extendeddata.schemadata.newgxsimplearraydata('roc', self.dbi3_log.kml_roc)
-        if 'BATM' in self.kml_cfg.kml_fields:
-            trk.extendeddata.schemadata.newgxsimplearraydata('batm', self.dbi3_log.kml_batm)
-        if 'BRDT' in self.kml_cfg.kml_fields:
-            trk.extendeddata.schemadata.newgxsimplearraydata('brdt', self.dbi3_log.kml_brdt)
+            trk.extendeddata.schemadata.newgxsimplearraydata("p_alt", self.dbi3_log.kml_alt)
+        if "AMBT" in self.kml_cfg.kml_fields:
+            trk.extendeddata.schemadata.newgxsimplearraydata("a_temp", self.dbi3_log.kml_a_temp)
+        if "TOPT" in self.kml_cfg.kml_fields:
+            trk.extendeddata.schemadata.newgxsimplearraydata("t_temp", self.dbi3_log.kml_t_temp)
+        if "DIFF" in self.kml_cfg.kml_fields:
+            trk.extendeddata.schemadata.newgxsimplearraydata("d_temp", self.dbi3_log.kml_diff_t)
+        if "COG" in self.kml_cfg.kml_fields:
+            trk.extendeddata.schemadata.newgxsimplearraydata("cog", self.dbi3_log.kml_cog)
+        if "SOG" in self.kml_cfg.kml_fields:
+            trk.extendeddata.schemadata.newgxsimplearraydata("sog", self.dbi3_log.kml_sog)
+        if "ROC" in self.kml_cfg.kml_fields:
+            trk.extendeddata.schemadata.newgxsimplearraydata("roc", self.dbi3_log.kml_roc)
+        if "BATM" in self.kml_cfg.kml_fields:
+            trk.extendeddata.schemadata.newgxsimplearraydata("batm", self.dbi3_log.kml_batm)
+        if "BRDT" in self.kml_cfg.kml_fields:
+            trk.extendeddata.schemadata.newgxsimplearraydata("brdt", self.dbi3_log.kml_brdt)
 
         # Styling
-        trk.stylemap.normalstyle.iconstyle.icon.href = 'http://earth.google.com/images/kml-icons/track-directional/track-0.png'
+        trk.stylemap.normalstyle.iconstyle.icon.href = (
+            "http://earth.google.com/images/kml-icons/track-directional/track-0.png"
+        )
         trk.stylemap.normalstyle.linestyle.color = KML_LINE_COLOR
         trk.stylemap.normalstyle.linestyle.width = 3
-        trk.stylemap.highlightstyle.iconstyle.icon.href = 'http://earth.google.com/images/kml-icons/track-directional/track-0.png'
+        trk.stylemap.highlightstyle.iconstyle.icon.href = (
+            "http://earth.google.com/images/kml-icons/track-directional/track-0.png"
+        )
         trk.stylemap.highlightstyle.iconstyle.scale = 1.2
         trk.stylemap.highlightstyle.linestyle.color = KML_LINE_COLOR
         trk.stylemap.highlightstyle.linestyle.width = 8
@@ -610,41 +740,45 @@ class Dbi3LogConversion:
         """
         # check the status of the log_parse()
         if self.dbi3_log.data_recs == 0:
-            return 1, 'No GPS data records, skip KML file generations'
+            return 1, "No GPS data records, skip KML file generations"
         elif self.dbi3_log.data_recs < 0:
-            return -1, 'No END record, skip KML file generation'
+            return -1, "No END record, skip KML file generation"
 
-        with open(csv_filename, 'w') as csv_file:
+        with open(csv_filename, "w") as csv_file:
             if len(self.dbi3_log.kml_gps_msl) > 0:
-                print('timestamp,alt,gps_alt,lat,lon,head,speed,bar,temp,diff_temp', file=csv_file)
+                print("timestamp,alt,gps_alt,lat,lon,head,speed,bar,temp,diff_temp", file=csv_file)
 
-                for t_pnt in zip(self.dbi3_log.kml_when,
-                                 self.dbi3_log.kml_alt,
-                                 self.dbi3_log.kml_gps_msl,
-                                 self.dbi3_log.kml_lat,
-                                 self.dbi3_log.kml_lon,
-                                 self.dbi3_log.kml_cog,
-                                 self.dbi3_log.kml_sog,
-                                 self.dbi3_log.kml_bar,
-                                 self.dbi3_log.kml_a_temp,
-                                 self.dbi3_log.kml_diff_t):
-                    print('{},{},{},{},{},{},{},{},{},{}'.format(*t_pnt), file=csv_file)
+                for t_pnt in zip(
+                    self.dbi3_log.kml_when,
+                    self.dbi3_log.kml_alt,
+                    self.dbi3_log.kml_gps_msl,
+                    self.dbi3_log.kml_lat,
+                    self.dbi3_log.kml_lon,
+                    self.dbi3_log.kml_cog,
+                    self.dbi3_log.kml_sog,
+                    self.dbi3_log.kml_bar,
+                    self.dbi3_log.kml_a_temp,
+                    self.dbi3_log.kml_diff_t,
+                ):
+                    print("{},{},{},{},{},{},{},{},{},{}".format(*t_pnt), file=csv_file)
 
             else:
-                print('timestamp,alt,lat,lon,head,speed,bar,temp,diff_temp', file=csv_file)
+                print("timestamp,alt,lat,lon,head,speed,bar,temp,diff_temp", file=csv_file)
 
-                for t_pnt in zip(self.dbi3_log.kml_when,
-                                 self.dbi3_log.kml_alt,
-                                 self.dbi3_log.kml_lat,
-                                 self.dbi3_log.kml_lon,
-                                 self.dbi3_log.kml_cog,
-                                 self.dbi3_log.kml_sog,
-                                 self.dbi3_log.kml_bar,
-                                 self.dbi3_log.kml_a_temp,
-                                 self.dbi3_log.kml_diff_t):
-                    print('{},{},{},{},{},{},{},{},{}'.format(*t_pnt), file=csv_file)
+                for t_pnt in zip(
+                    self.dbi3_log.kml_when,
+                    self.dbi3_log.kml_alt,
+                    self.dbi3_log.kml_lat,
+                    self.dbi3_log.kml_lon,
+                    self.dbi3_log.kml_cog,
+                    self.dbi3_log.kml_sog,
+                    self.dbi3_log.kml_bar,
+                    self.dbi3_log.kml_a_temp,
+                    self.dbi3_log.kml_diff_t,
+                ):
+                    print("{},{},{},{},{},{},{},{},{}".format(*t_pnt), file=csv_file)
 
-        return 0, '  CSV Write {} complete'.format(os.path.basename(csv_filename))
+        return 0, "  CSV Write {} complete".format(os.path.basename(csv_filename))
 
 
 def conv_C_to_F(tempC):
@@ -680,8 +814,9 @@ def calc_distance(origin, destination):
 
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
-    a = math.sin(dlat / 2) * math.sin(dlat / 2) + math.cos(math.radians(lat1)) \
-        * math.cos(math.radians(lat2)) * math.sin(dlon / 2) * math.sin(dlon / 2)
+    a = math.sin(dlat / 2) * math.sin(dlat / 2) + math.cos(math.radians(lat1)) * math.cos(
+        math.radians(lat2)
+    ) * math.sin(dlon / 2) * math.sin(dlon / 2)
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     d = radius * c
 
@@ -721,12 +856,13 @@ class Dbi3KmlList:
             except ValueError as e:
                 # Could be the kml didn't match our current SN for logs
                 if self.debug:
-                    print(('Parse error of {}:{}'.format(item, e)))
+                    print(("Parse error of {}:{}".format(item, e)))
                 continue
             if dt is not None:
-                self.new_limit = dt.replace(tzinfo=utc) + timedelta(minutes=1)  # make new_limit timezone aware
+                # make new_limit timezone aware
+                self.new_limit = dt.replace(tzinfo=utc) + timedelta(minutes=1)
                 if config.verbose:
-                    print('DBI3 KML computed new file threshold: {}'.format(self.new_limit))
+                    print("DBI3 KML computed new file threshold: {}".format(self.new_limit))
                 break
 
     def refresh_list(self):
@@ -748,33 +884,41 @@ class Dbi3KmlList:
         # If we have an age limit, construct a matching filename for comparison
         age_limit_name = None
         if dt_limit is not None:
-            age_limit_name = dt_limit.strftime('%Y_%m_%d_%H_%M_%S.log')
+            age_limit_name = dt_limit.strftime("%Y_%m_%d_%H_%M_%S.log")
 
         # regex to extract timestamp fields from DBI3 log name format
-        prog = re.compile('^(\d{4})_(\d\d)_(\d\d)_(\d\d)_(\d\d)_(\d\d).log$')
+        prog = re.compile("^(\d{4})_(\d\d)_(\d\d)_(\d\d)_(\d\d)_(\d\d).log$")
         for log_name in sorted(os.listdir(self.log_sn_path)):
             name_parts = prog.match(log_name)
             log_filename = os.path.join(self.log_sn_path, log_name)
-            if name_parts is not None and os.path.isfile(log_filename) and (
-                    age_limit_name is None or log_name > age_limit_name):
+            if (
+                name_parts is not None
+                and os.path.isfile(log_filename)
+                and (age_limit_name is None or log_name > age_limit_name)
+            ):
                 # log_name matches the re, is a file, and exceeds the age limit if defined
                 selected = False
                 data = None
-                kml_name = name_parts.expand('\\1\\2\\3_\\4\\5_') + self.app_config.sn
+                kml_name = name_parts.expand("\\1\\2\\3_\\4\\5_") + self.app_config.sn
                 kml_filename = os.path.join(self.app_config.kml_path, kml_name)
-                log_metaname = os.path.join(self.log_sn_path, '.' + log_name[0:-4])  # create metadata name from log name
-                if not os.path.isfile(kml_filename + '.kml'):
+                # create metadata name from log name
+                log_metaname = os.path.join(self.log_sn_path, "." + log_name[0:-4])
+                if not os.path.isfile(kml_filename + ".kml"):
                     selected = True
                 if os.path.isfile(log_metaname):
                     # meta file data to override some conversion settings
-                    with open(log_metaname, 'r') as meta:
+                    with open(log_metaname, "r") as meta:
                         data = json.load(meta)
-                self.conversion_list.append(ConversionList(log_name=log_name,
-                                                           log_filename=log_filename,
-                                                           kml_name=kml_name,
-                                                           kml_filename=kml_filename,
-                                                           new_file=selected,
-                                                           meta_name=log_metaname,
-                                                           override=data))
+                self.conversion_list.append(
+                    ConversionList(
+                        log_name=log_name,
+                        log_filename=log_filename,
+                        kml_name=kml_name,
+                        kml_filename=kml_filename,
+                        new_file=selected,
+                        meta_name=log_metaname,
+                        override=data,
+                    )
+                )
 
         return self.conversion_list

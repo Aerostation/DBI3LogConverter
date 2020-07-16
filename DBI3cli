@@ -18,15 +18,16 @@ if __name__ == "__main__":
     else we try to construct the current version from git.
     else we use any current __version__.py file.
     """
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         # In the pyinstaller bundle, __version__ must already be in place
         pass
     else:
         # Try to update __version__ from git
         main_path = os.path.dirname(os.path.realpath(sys.argv[0])) if sys.argv[0] else None
-        ver_filename = os.path.join(main_path, 'dbi3_access', 'lib', '__version__.py')
+        ver_filename = os.path.join(main_path, "dbi3_access", "lib", "__version__.py")
         try:
             from setuptools_scm import get_version
+
             version = get_version()
         except (UserWarning, LookupError):
             # NOW let later include try to find the existing __version__ file (setuptools package)
@@ -34,8 +35,8 @@ if __name__ == "__main__":
             pass
         else:
             # We are in the git repo so update the __version__ file for development runs.
-            with open(ver_filename, 'w') as v_file:
-                print('# development run generated version from git', file=v_file)
+            with open(ver_filename, "w") as v_file:
+                print("# development run generated version from git", file=v_file)
                 print('__version__ = "{}"'.format(version), file=v_file)
 
     # import the main so we can call it (will expect to find the __version__.py)
