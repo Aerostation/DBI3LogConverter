@@ -1,14 +1,17 @@
 # DBI3LogConverter
-DBI3 log handling has split into two applications.  The original **DBI3LogConverter** converts
-a single log file into KML, but it has not been kept up to date and may not work (21Aug2018).
-The newer application **DBI3cli** includes code to download files from the DBI3, convert those files to KML, and allow single file conversion like the original DBI3LogConverter.  UNICSV output support is currently disabled.
-
-This application reads Digitool DBI3 log files and converts them to common formats such as KML.
+The original **DBI3LogConverter** has been superseded by **DBI3cli** which incorporates functionality to 
+download/delete log files on the **DBI3** and convert those files to KML.  It also has the ability to convert
+a standalone DBI3 log file to KML for those times you may get a file from another Balloonist.
 
 Log files on the DBI3 must first be downloaded to the PC before conversion.
 
-It is possible to create a metadata file for any LOG file that will contain overrides for the KML conversion.  Things like altitude offset (when the altimeter setting was wrong), trim_start/end_times when there are
-excess records at the start/end of the LOG file that you wish to exclude from the KML output.  The metadata file is the same basename as the log file (no extension) preceeded by "." to make it a hidden file.
+**DBI3cli** also has some ability to convert log files to CSV and was written to enable support of other
+formats in the future.
+
+It is possible to create a metadata file for any LOG file that will contain overrides for the KML conversion.  Things
+like altitude offset (when the altimeter setting was wrong), trim_start/end_times when there are
+excess records at the start/end of the LOG file that you wish to exclude from the KML output.  The metadata file is 
+the same basename as the log file (no extension) preceeded by "." to make it a hidden file.
 It will be used anytime the log is converted.
 
 The default mode of operation is interactive menus.  There is also "--sync" which automatically
@@ -21,9 +24,11 @@ default log_path to *~/Documents/DBI3logs*, kml_path to *~/Documents/DBI3logs/km
 port to None.  Comm port=None causes the application to search the USB for the correct
 VID/PID used by the DBI3 interface chip.
 
-For the end user, this python script should be packaged into a self contained executable that requires no other installations on the users computer (currently limited to 64-bit Windows 10)
+For the end user, this python script should be packaged into a self contained executable that requires no other 
+installations on the users computer (currently limited to 64-bit Windows 10)
 
-The application uses basename of the DBI3 log file with some "_" removed as the basename of the KML output file.  The SN of the DBI3 is added to the name to differentiate multiple DBI3 sources.
+The application uses basename of the DBI3 log file with some "_" removed as the basename of the KML output file.  The 
+SN of the DBI3 is added to the name to differentiate multiple DBI3 sources.
 
 NOTE:  THE FOLLOWING IS NO LONGER CORRECT ---
 From CMD terminal (Windows Key, type cmd, select "Command Prompt")
@@ -37,7 +42,7 @@ Assumes you saved the logs in your Documents directory and want to place the res
 
 
 
-Currently the DBI3cli app will output KML with additional data by default.  [DISABLED- UNICSV is optional with a command line option.]
+Currently the DBI3cli app will output KML with additional data by default.
 
 There are still questions:
 - If there are data dropouts, e.g. the top temp is not always available, what can we do in the KML output (select an identifiable default)
@@ -47,7 +52,7 @@ There are still questions:
 
 ROADMAP -
 - Add gui front end.
-- Automate build version increment
+- Automate build version increment (DONE)
 
 ####BUILD -
 
