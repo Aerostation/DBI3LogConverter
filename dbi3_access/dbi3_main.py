@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # vim: set shiftwidth=4 softtabstop=4 autoindent expandtab:
 ###########################################################################
-# Copyright (C) Aerostation/Ronald Thornton 2018-2020
+# Copyright (C) Aerostation/Ronald Thornton 2018-2021
 # All rights reserved.
 ###########################################################################
 """Drive the DBI3 log downloads and conversions to KML
@@ -97,7 +97,7 @@ def process_dbi():
         log_list = down_load.get_DBI3_log_list(True)
 
         if log_list is not None:
-            down_load.download_selected_logs(log_list)
+            down_load.download_new_logs(log_list)
 
     except IOError as e:
         if down_load is not None and down_load.dbi3_sn is not None:
@@ -323,7 +323,7 @@ Selected logs are marked with "*" after the line number.
         process_select_range(line, self.my_list)
 
     def help_select(self):
-        print("Select/deselect LOG list rows for KML conversion.")
+        print("Select/deselect LOG list rows for DBI3 download, convert or delete.")
         print("")
         print("Usage: select all|none|new|[-]#|#-#[,#|#-#...]")
         print("  all - select all rows")

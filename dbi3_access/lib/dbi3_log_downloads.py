@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # vim: set sw=4 st=4 ai expandtab:
 ###########################################################################
-# Copyright (C) Aerostation/Ronald Thornton 2020
+# Copyright (C) Aerostation/Ronald Thornton 2020-2021
 # All rights reserved.
 ###########################################################################
 """
@@ -251,7 +251,7 @@ class DBI3LogDownload:
         timestamp format, encoded in radix26.
 
         Per the original DigiTool log download, the output filenames are encoded as
-        YYYY_MM_DD_hh_mm_ss_DBI3.log (I added the _DBI3 to differentiate .log files!)
+        YYYY_MM_DD_hh_mm_ss.log
 
         After retrieving the log list from the DBI3 we check our configured log_path
         for corresponding log files and automatically select (mark download=True) each
@@ -295,13 +295,14 @@ class DBI3LogDownload:
                 continue
             stop_dt = self.__fat_to_datetime(rs[1])
 
+            # Compute the log file basename from the RAD26 start time string
             log_basename = start_dt.strftime("%Y_%m_%d_%H_%M_%S")
             log_name = log_basename + ".log"
             log_metaname = "." + log_basename  # hidden filename for conversion metadata
 
             if self.valid_only:
                 # Without download we can't determine if there are GPS records, we can only
-                # base "valid" on a time delta.
+                # base "valid" on a time delta (too few records).
                 if stop_dt - start_dt < timedelta(seconds=3):
                     if self.verbose:
                         print(
@@ -312,11 +313,13 @@ class DBI3LogDownload:
             log_file = os.path.join(p_path, log_name)
             log_metafile = os.path.join(p_path, log_metaname)
 
+            # Check if the log file exists on the PC
             if not os.path.isfile(log_file):
                 download = True
             else:
                 download = False
 
+            # If the log metadata file exists, load the dictionary
             metadata = None
             if os.path.isfile(log_metafile):
                 # meta file to override some conversion settings
@@ -452,11 +455,11 @@ class DBI3LogDownload:
             )
         )
 
-    def download_selected_logs(self, log_list):
+    def download_new_logs(self, log_list):
         """Access DBI3 via the serial port and download new log files.
 
-        Download the current log list and compare against the destination log directory.
-        Download logs that don't already exist.
+        Download logs that don't already exist as indicated by the "new_file" field
+        in the list elements.
 
             :param list,LogList log_list: list of logs on the DBI3
             :return int:

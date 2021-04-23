@@ -1,6 +1,6 @@
 # vim: set sw=4 st=4 ai expandtab:
 ###########################################################################
-# Copyright (C) Aerostation/Ronald Thornton 2020
+# Copyright (C) Aerostation/Ronald Thornton 2020-2021
 # All rights reserved.
 ###########################################################################
 """
@@ -53,6 +53,14 @@ SummaryList = collections.namedtuple(
 )
 
 # Define named tuple for DBI3 LOG list entries
+#  name_start - RAD26 string of start time
+#  name_end - RAD26 string of end time
+#  start_dt - datetime of start time
+#  end_dt - datetime of end time
+#  log_name - string, filename of log
+#  new_file - boolean new file, does not exist on the PC
+#  meta_name - string, filename of metadata
+#  override - dictionary of optional metadata or None
 LogList = collections.namedtuple(
     "LogList", "name_start name_end start_dt end_dt log_name new_file meta_name override"
 )
