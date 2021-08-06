@@ -5,14 +5,19 @@ The original **DBI3LogConverter** application that converted
 a single DBI3 log file into KML has been replaced (21Aug2018).
 The newer application **DBI3cli** includes code to download and/or delete
 log files from the
-DBI3, convert those files to KML, and still allow single file conversion like the original DBI3LogConverter.  UNICSV output support is a work in progress.
+DBI3, convert those files to KML, and still allow single file conversion like the original
+DBI3LogConverter.  CSV output support is a work in progress.
 
-LOG files on the DBI3 must first be downloaded to the PC before conversion.  The LOG files are never altered by this
+LOG files on the DBI3 must first be downloaded to the PC before conversion.  The LOG files
+are never altered by this
 application but simply used as the source for conversion to KML or other formats.
 
-It is possible to create an optional metadata file for any LOG file that will contain overrides for the KML conversion.  Elements like altitude offset (when the altimeter setting was incorrect) and trim_start/end times when there are
-excess records at the start/end of the LOG file that you wish to exclude from the KML output.  The metadata file is the same basename as the log file (i.e. no
-extension) prefixed by "." to make it a hidden file.
+It is possible to create an optional metadata file for any LOG file that will contain
+overrides for the KML conversion.  Override elements like altitude offset (when the altimeter
+setting was incorrect) and trim_start/trim_end times when there are
+excess records at the start/end of the LOG file that you wish to exclude from the KML
+output.  The metadata file is the same basename as the log file with no extension and
+prefixed by "." to make it a hidden file.
 It will be used anytime the log is converted.
 
 The default mode of operation is interactive menus.  There is also the command line "--sync" option which automatically
@@ -30,23 +35,41 @@ For the end user, this python script is packaged into a self contained executabl
 requires no other installations on the users computer (currently supported for 64-bit Windows 10 and Linux)
 
 The LOG filenames are based on the original DigiTool download tool and are in the format
-**YYYY_MM_DD_HH_MM_SS.log**. LOG files are stored in a subdirectory of _log_path_ that is the Serial Number of the
-DBI3 that created the LOG.  The KML output is stored in the _kml_path_ with filenames are in format
-YYYYMMDD_HHMM_SNxxxxxx.kml to differentiate logs from different DBI3 instruments.
+**YYYY_MM_DD_HH_MM_SS.log**. LOG files are stored in a subdirectory of _log_path_ that is the
+Serial Number of the
+DBI3 that created the LOG to differentiate logs from different DBI3 instruments.  The
+KML output is stored in the _kml_path_ with filenames are in format
+YYYYMMDD_HHMM_SNxxxxxx.kml that embeds the DBI3 serial number in the filename.
 
 The **DBI3cli** app outputs the KML with additional DBI3 log data by default (e.g. COG, Variometer, Top Temp, ...).
 
 ###### There are still questions:
-- If there are data dropouts, e.g. the top temp is not always available, what can we do in the KML output (select an identifiable default)
-- Currently, missing GPS data records are simply dropped.  The MAP display will simply show a potential straight line to the next data point.
-- Should some or all of the additional data fields be optional in the KML to reduce KML size?  YES, additional data fields are configurable.
+- If there are data dropouts, e.g. the top temp is not always available, what can we do in
+  the KML output (currently selects an identifiable default value)
+- Currently, missing GPS data records are simply dropped.  The MAP display will simply show
+  a potential straight line to the next data point.
+- Should some or all of the additional data fields be optional in the KML to reduce KML
+  size?  YES, additional data fields are configurable.
 - The application will currently overwrite any existing output KML of the same name.  What should it do?
 
 #### ROADMAP -
 - Add gui front end.
 - Automate build version increment - DONE
 
-#### BUILD via build.sh-
+#### CODE STYLE -
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+I have started enforcing "The Black Code Style" by running the **black** application
+(actually python module).  The only current override is to increase the maximum line length
+from the **black** default of 88 to 99.
+
+With python env set to DBI3dev, in the top repository directory:
+```commandline
+black --check .
+black .
+```
+The --check will report on the files that WOULD be changed.
+
+#### BUILD via build.sh -
 
 Pyinstaller is used to package DBI3cli into a single executable file for Windows 10 and Linux.
 Pyinstaller must be installed before build can run.
@@ -54,9 +77,17 @@ Pyinstaller must be installed before build can run.
 The build process is now driven by build/build.sh for both Windows 10 and Linux.  It
 creates a clean copy of source file in build/app, updates the build version, and runs pyinstaller.
 
-On windows this s done from a "GIT Bash" window (part of Git for Windows https://gitforwindows.org/) which is a Linux
- like format and has
-git in the PATH for automatic versioning.
+Prior to a release build, the repository should be up-to-date and then
+```commandline
+git tag -l -n4
+git tag -a -m "tag message" n.m
+```
+to create the next tag number in the series.  'git tag -l' lists the current tags and messages.
+
+On windows this is done from a "GIT Bash" window (part of Git for Windows
+https://gitforwindows.org/) which is a Linux
+like format and has
+git in the PATH for the automatic versioning.
 
 From top level of the repo:
 ```commandline

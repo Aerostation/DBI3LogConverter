@@ -19,10 +19,12 @@ try:
     from dbi3_common import ConversionList, SummaryList, utc, DBI_DEFAULT_LOG_FIELDS
     from dbi3_log_downloads import DBI3LogDownload
     from dbi3_config_options import Dbi3ConfigOptions, Dbi3ConversionOptions
+    from audit_utils import init_logger, get_log
 except ImportError:
     from .dbi3_common import ConversionList, SummaryList, utc, DBI_DEFAULT_LOG_FIELDS
     from .dbi3_log_downloads import DBI3LogDownload
     from .dbi3_config_options import Dbi3ConfigOptions, Dbi3ConversionOptions
+    from .audit_utils import init_logger, get_log
 
 TWO_SECONDS = timedelta(seconds=2)  # time increment between data records
 KML_LINE_COLOR = "ff0000ff"  # hex aabbggrr
@@ -140,7 +142,7 @@ class Dbi3Log:
             spd_is_mph = False
             alt_is_ft = False
 
-        # After fw ver 1.2, the log added GPS Altitude.  If check the first data record
+        # After fw ver 1.2, the log added GPS Altitude.  Check the first data record
         # to determine if we have it.
         has_msl = None
 
@@ -907,8 +909,26 @@ class Dbi3KmlList:
                     selected = True
                 if os.path.isfile(log_metaname):
                     # meta file data to override some conversion settings
-                    with open(log_metaname, "r") as meta:
-                        data = json.load(meta)
+                    try:
+                        with open(log_metaname, "r") as meta:
+                            data = json.load(meta)
+                    except Exception as e:
+                        t_nam = os.path.join(self.log_sn_path, "." + log_name[0:-4] + ".damaged")
+                        for nxt_num in range(1, 10):  # add int suffix to find a unique name
+                            if os.path.isfile(t_nam):
+                                t_nam = os.path.join(
+                                    self.log_sn_path,
+                                    "." + log_name[0:-4] + ".damaged{}".format(nxt_num),
+                                )
+                                continue
+                            os.rename(log_metaname, t_nam)
+                            break
+                        get_log().info(
+                            "Metadata parse error in {} :\n ".format(log_metaname)
+                            + repr(e)
+                            + "\n Renamed to {}".format(t_nam)
+                        )
+                        date = None
                 self.conversion_list.append(
                     ConversionList(
                         log_name=log_name,

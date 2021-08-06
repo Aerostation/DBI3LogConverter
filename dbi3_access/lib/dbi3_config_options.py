@@ -9,7 +9,7 @@ from __future__ import print_function
 
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, time, timedelta
 import json
 import collections
 from serial.tools.list_ports import comports
@@ -124,6 +124,7 @@ class Dbi3ConfigOptions:
 
         # Update default configs from the config file
         self._update_config_from_file()
+        self.meta_start_date = None  # determine start datetime from filename
 
         # Now apply any command line override
         if sn is not None:
@@ -277,6 +278,7 @@ class Dbi3ConfigOptions:
         self._update_config_file(self.conf_file, AppConfig, data)
 
     def edit_conversion_config(self, cfg_path):
+        self.meta_start_date = datetime.strptime(os.path.basename(cfg_path), ".%Y_%m_%d_%H_%M_%S")
         data = {}
         if os.path.isfile(cfg_path):
             with open(cfg_path, "r") as conf_file:
@@ -297,7 +299,9 @@ class Dbi3ConfigOptions:
                 None,
                 self.time_check,
                 False,
-                "Ignore DBI3 data until YYYYMMDDhhmmss",
+                'Ignore DBI3 data until "YYYY-MM-DD hh:mm:ss" or\n'
+                '    "hh:mm:ss" where date is the log start date or\n'
+                '    "+n hh:mm:ss" where date is the log start date +n days.',
             ),
             ConfigSpec(
                 "trim_end_time",
@@ -305,7 +309,9 @@ class Dbi3ConfigOptions:
                 None,
                 self.time_check,
                 False,
-                "Ignore DBI3 data after YYYYMMDDhhmmss",
+                'Ignore DBI3 data after "YYYY-MM-DD hh:mm:ss" or\n'
+                '    "hh:mm:ss" where date is the log start date or\n'
+                '    "+n hh:mm:ss" where date is the log start date +n days.',
             ),
             ConfigSpec(
                 "prefer_gps",
@@ -416,7 +422,7 @@ class Dbi3ConfigOptions:
                 )
                 print(
                     "{:2} {:<24} {:<12}:  {}".format(
-                        cfg_index, el.name, "({})".format(el.default), current_val
+                        idx + 1, el.name, "({})".format(el.default), current_val
                     )
                 )
                 if not el.direct:
@@ -437,7 +443,7 @@ class Dbi3ConfigOptions:
                             data[el.field_name] = el.default
                     elif new_val == "?":
                         # Config field help
-                        print("\nHINT- {}".format(el.help_txt))
+                        print("\nHINT- {}\n".format(el.help_txt))
                         print('      cr=keep current, "*"=None, "."=default')
                         continue
                     else:
@@ -462,7 +468,7 @@ class Dbi3ConfigOptions:
     #
     # Configuration file field validation methods follow
     #
-    # All validation methos receive two parameters and return the value or None
+    # All validation methods receive two parameters and return the value or None
     #
     @staticmethod
     def text_check(param_name, line):
@@ -510,9 +516,33 @@ class Dbi3ConfigOptions:
     def float_check(param_name, fp_string):
         return float(fp_string)
 
-    @staticmethod
-    def time_check(param_name, time_str):
-        return datetime.strptime(time_str, "%Y%m%d%H%M%S").strftime("%Y%m%d%H%M%S")
+    def time_check(self, param_name, time_str):
+        """Takes a ISO format date and time, space separated.
+         A missing date field defaults to the log start date.  A date field
+         that begins with "+" will default to the log start date +n days."""
+        flds = time_str.split()
+        n_flds = len(flds)
+        try:
+            if n_flds == 1:
+                d_fld = self.meta_start_date.date()
+                t_fld = flds[0]
+            elif n_flds == 2:
+                if flds[0][0] == "+":
+                    d_fld = self.meta_start_date.date() + timedelta(days=int(flds[0]))
+                    t_fld = flds[1]
+                else:
+                    d_fld = datetime.fromisoformat(flds[0])
+                    t_fld = flds[1]
+            else:
+                print("Error: Must supply 1 or 2 fields.")
+                return None
+
+            dt = datetime.combine(d_fld, time.fromisoformat(t_fld))
+        except ValueError as e:
+            print("Bad input: " + str(e))
+            return None
+
+        return dt.strftime("%Y%m%d%H%M%S")
 
     @staticmethod
     def ask_for_port(param_name, com_port):
@@ -625,8 +655,12 @@ class Dbi3ConversionOptions:
         )
         if os.path.isfile(self.log_meta):
             # This log file has persisted meta data, get the config options
-            with open(self.log_meta, "r") as meta:
-                data = json.load(meta)
+            try:
+                with open(self.log_meta, "r") as meta:
+                    data = json.load(meta)
+            except Exception as e:
+                print("Ignore {}: {}".format(self.log_meta, repr(e)))
+                return
             # For all defined config attributes, if it exists in the file, update our variable
             for field in METADATA_CONFIG_ATTR:
                 if field in data:

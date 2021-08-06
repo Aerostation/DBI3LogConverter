@@ -7,17 +7,17 @@
 """Drive the DBI3 log downloads and conversions to KML
 
 It can run interactively with CLI menus or --sync will run automatically to find a DBI3
-serial port, download all new logs for the Serial Number DBI3, then convert all new logs
+serial port, download all new logs for the DBI3, then convert all new logs
 to KML for that DBI3 SN.
 """
 # TODO Log download and conversions to rolling journal for historical reference.  Include edits
-# TODO GPS Altitude field entered after fw ver 1.2 so we need to handle as optional
 from __future__ import print_function
 import os
 import argparse
 import cmd
 import glob
 import sys
+import json
 from datetime import datetime, timedelta
 
 from dbi3_access.lib.dbi3_log_conversion import Dbi3KmlList, Dbi3LogConversion
@@ -181,7 +181,7 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
             return
         for ln in line.split(","):
             ln.strip()
-            if ln == "all":
+            if ln == "all" or ln == "none":
                 app_config.CLI_new_logs = False
                 app_config.CLI_age_limit = None
                 app_config.CLI_skip_invalid = False
@@ -215,7 +215,7 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
         print("Filter out the display of logs in the Logs and KML lists.")
         print("")
         print(" filter options - all|new|old|valid|invalid|#[,...}  where #=age_limit in days.")
-        print("   all - turn off all filters, display all logs.")
+        print("   none - turn off all filters, display all logs.")
         print("   new - only display logs newer than the currently latest log/KML file.")
         print("   old - reverses the new filter.")
         print("   valid - does not display logs that are invalid (have no GPS data).")
@@ -267,6 +267,59 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
         Dbi3KmlConversionCommands(process_sn).cmdloop()
         return Cmd_exit  # Global to indicate exit from nested Cmd
 
+    def do_export(self, line):
+        """Log or show the DBI3 instrument configuration settings
+
+        Firmware upgrades of the DBI3 seem to reset the configuration data
+        so it is a good idea to take a snapshot before upgrade.
+
+        Default is to write to a DBI3 .cfg file in log_path but
+        "export show" will write to the terminal.  The .cfg file name includes
+        the DBI3 SN and timestamp when taken.
+
+        See the DBI3 Instrument User Manual for setting definitions.
+        """
+        args = line.split()
+        down_load = None
+        report = ""
+        try:
+            # Initialize the serial communications and read the config data
+            down_load = DBI3LogDownload(app_config)
+            report, cfg_dict = down_load.get_DBI3_config()
+        except IOError as e:
+            print("Can not access DBI3: {}".format(e))
+            return False
+        if "show" in args:
+            # Display the config on the terminal
+            for res in report:
+                print(res)
+        else:
+            # open config report file and write the data.
+            # Embed the SN and current UTC time in the filename.
+            time_string = datetime.utcnow().strftime("%Y%m%d_%H%M")
+            cfg_file = "DBI3_{}_{}.cfg".format(
+                down_load.dbi3_sn, time_string
+            )
+            cfg_file_path = os.path.join(app_config.log_path, cfg_file)
+            # Add a header line to the report
+            report.insert(
+                0,
+                "DBI3 {} configuration data on {} UTC".format(
+                    down_load.dbi3_sn, datetime.utcnow().strftime("%c")
+                ),
+            )
+            with open(cfg_file_path, "w") as f:
+                for res in report:
+                    f.write(res + "\n")
+
+            if "json" in args:
+                cfg_file = "DBI3_{}_{}.json".format(
+                    down_load.dbi3_sn, time_string
+                )
+                cfg_file_path = os.path.join(app_config.log_path, cfg_file)
+                with open(cfg_file_path, "w") as f:
+                    json.dump(cfg_dict, f, indent=4)
+
     def do_EOF(self, line):
         """Exit"""
         return True
@@ -309,11 +362,13 @@ Selected logs are marked with "*" after the line number.
         for i, le in enumerate(self.my_list):
             if only_sel is False or le[0] is True:
                 print(
-                    "{:2d} {} {}{}  duration:{}".format(
+                    "{:3d} {} {}{}  {} to {}  duration:{}".format(
                         i,
                         "*" if le[0] else " ",
                         le[1].log_name,
                         "(new)" if le[1].new_file else "     ",
+                        le[1].start_dt.astimezone().strftime("%H:%M:%S"),
+                        le[1].end_dt.astimezone().strftime("%H:%M:%S %Z"),
                         le[1].end_dt - le[1].start_dt,
                     )
                 )
@@ -340,6 +395,7 @@ Selected logs are marked with "*" after the line number.
         for le in self.my_list:
             if le[0]:  # list row is marked as selected
                 self.down_load.get_DBI3_log(le[1].name_start)
+                le[0] = False  # clear the select flag
 
     def do_convert(self, line):
         """Download AND convert the selected logs."""
@@ -356,8 +412,10 @@ Selected logs are marked with "*" after the line number.
                     )
                 elif rtn > 0 and app_config.verbose:
                     get_log().info("Convert {} to KML : {}".format(le[1].log_name, rtn_str))
+                    le[0] = False  # clear the select flag
                 elif rtn == 0:
                     get_log().info("Convert {} to KML\n{}".format(le[1].log_name, rtn_str))
+                    le[0] = False  # clear the select flag
 
     def do_delete(self, line):
         """Delete the selected log files on the DBI3"""
@@ -372,8 +430,13 @@ Selected logs are marked with "*" after the line number.
                 if new_val.startswith("y"):
                     self.down_load.delete_DBI3_log(le[1].name_start)
                     deleted_log = True
+                    get_log().info(
+                        "Deleted log {} {} from the DBI3".format(le[1].log_name, le[1].name_start)
+                    )
+
         # Delete has invalidated the list, so refresh
         if deleted_log:
+            print("Refresh the log list--")
             self.do_refresh("")
 
     def do_back(self, line):
@@ -432,10 +495,13 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
         """Display the DBI3 logs available for KML conversion.
 Selected logs are marked with "*" after the line number.
 "list selected" limits list to only the selected logs.
+"list long" prints an additional line of info per log file.
 """
         # Create and display a filter status line based on the settings
         print("\nCURRENT LIST FILTER: [{}]".format(filter_text()))
-        only_sel = line == "selected"
+        args = line.split()
+        only_sel = "selected" in args
+        long_list = "long" in args
         for i, le in enumerate(self.my_list):
             if only_sel and not le[0]:
                 continue
@@ -450,6 +516,13 @@ Selected logs are marked with "*" after the line number.
                     le[2].gps_end - le[2].gps_start if le[2].status > 0 else "---",
                 )
             )
+            if long_list:
+                print(
+                    "       {} to {}".format(
+                        le[2].gps_start.astimezone().strftime("%H:%M:%S"),
+                        le[2].gps_end.astimezone().strftime("%H:%M:%S %Z"),
+                    )
+                )
 
     def do_select(self, line):
         """Select/deselect LOG list rows for KML conversion. [all, none, new, #, #-#, -#]"""
@@ -498,8 +571,10 @@ Selected logs are marked with "*" after the line number.
                     )
                 elif rtn > 0 and app_config.verbose:
                     get_log().info("Convert {} to KML: {}".format(le[1].log_name, rtn_str))
+                    le[0] = False  # clear the select flag
                 elif rtn == 0:
                     get_log().info("Convert {} to KML\n{}".format(le[1].log_name, rtn_str))
+                    le[0] = False  # clear the select flag
 
                 # TODO - this is a temporary hack for development
                 #        csv enabled by command line flag
@@ -553,6 +628,8 @@ def process_select_range(line, my_list):
     ln = line.lower()
     for line in ln.split(","):
         line = line.strip()
+        if line == "":
+            continue
         sel = None
         sel_new = False
         if "all" in line:

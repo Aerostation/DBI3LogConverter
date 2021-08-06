@@ -61,10 +61,15 @@ class DBI3LogDownload:
         fs stop - stop any current logging, return ok/nok\n\r
         md mach - unknown, return ok\n\r
         sn - return serial number string SN12345\n\r
-        fs list - returns log list\n\r follow with fs stop or md mach to gen ok/nok to indicate end"""
+        fs list - returns log list\n\r follow with fs stop or md mach to gen ok/nok to indicate end
 
-    DBI3_EOL = "\n\r"  # DBI3 uses backward EOL. std since the teletype has been \r\n (allowed
-    #  carriage to physically return during line-feed
+    Some command returns include ok/nok as the last line, giving an explicit indication of the end
+    of output.  For those that dont ("fs list")" we add the "md mach" command as a no-op that DOES
+    generate ok/nok
+    """
+
+    DBI3_EOL = "\n\r"  # DBI3 uses backward EOL. Standard since the teletype has been \r\n (allowed
+    #  carriage to physically return during the mechanical line-feed)
 
     MD_MACH = "md mach"
     FS_STOP = "fs stop"
@@ -73,6 +78,9 @@ class DBI3LogDownload:
     RESP_OK = ["ok"]
     RESP_NOK = ["nok"]
     RESP_ANY = ["ok", "nok"]
+
+    # DBI3 Log filename format is YYYY_MM_DD_HH_MM_SS.log giving a str length of 23
+    LOGNAME_LEN = 23
 
     def __init__(self, app_config):
         """Initialize DBI3LogDownload and serial port.
@@ -205,18 +213,35 @@ class DBI3LogDownload:
             raise IOError("cmd sn: returned empty")
         self.dbi3_sn = res
 
-        # The determine "new" logs we need to know the latest log in log_path
+    def __get_latest_log_time(self):
+        """Determine the latest log file that has been downloaded from the DBI3
+
+        To determine "new" logs we need to know the currently latest log in log_path
+
+        Do descending sort of the log_path, skip wrong length file names and non-files,
+        first successful strptime should be the latest log file.
+
+        :action:  updates self.new_limit
+        :param:
+        :return:
+        """
         p_path = os.path.join(self.log_path, self.dbi3_sn)
         if os.path.isdir(p_path):
             dt = None
-            for item in sorted(os.listdir(p_path), reverse=True):
+            # To minimize unnecessary file name, we immediately remove wrong length
+            # file names from the listdir output BEFORE sort.
+            for item in sorted(
+                [x for x in os.listdir(p_path) if len(x) == self.LOGNAME_LEN], reverse=True
+            ):
                 if not os.path.isfile(os.path.join(p_path, item)):
-                    continue
+                    continue  # skip non-files
                 try:
                     dt = datetime.strptime(item, "%Y_%m_%d_%H_%M_%S.log")
                 except ValueError as e:
                     if self.debug:
                         print("Parse error of {}:{}".format(item, e))
+                    continue  # skip wrong format file names
+                # The first valid strptime is the latest log file
                 if dt is not None:
                     # make new_limit timezone aware
                     self.new_limit = dt.replace(tzinfo=utc) + timedelta(seconds=1)
@@ -274,6 +299,7 @@ class DBI3LogDownload:
         p_path = os.path.join(self.log_path, self.dbi3_sn)
 
         dt_limit = None
+        self.__get_latest_log_time()  # update latest log timestamp
         if new_logs_only and self.new_limit is not None:
             dt_limit = self.new_limit
         elif self.app_config.CLI_age_limit is not None:
@@ -345,7 +371,8 @@ class DBI3LogDownload:
         return log_list
 
     def delete_DBI3_log(self, name):
-        print("Will delete {}".format(name))
+        start_dt = datetime.utcnow()
+        print("Deleting log {}".format(name))
         self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
         self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
 
@@ -355,8 +382,170 @@ class DBI3LogDownload:
         self.serial_fd.timeout = 20
         res = self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
         self.serial_fd.timeout = orig_timeout
-        print("fs delete ({}) result={}".format(len(res), res))
+        print(
+            "fs delete result={}({}) in {:0.2f} seconds".format(
+                res, len(res), (datetime.utcnow() - start_dt).total_seconds()
+            )
+        )
         return True
+
+    # The following list contains configuration get commands that will return the
+    # current DBI3 config state.
+    #
+    # A 2 field list element indicates a multi-line return from the single command
+    # A 3 field list element indicates 1 (or more) single line returns from the command
+    #   IF the 3rd field is a list, the base command takes one or more subcommands, each
+    #   returning a single line.
+    #
+    # field 1 - command
+    # field 2 - descriptive string (header for command report output)
+    # field 3 - list of sub-commands
+    #   sub-field 1 - sub-command
+    #   sub-field 2 - descriptive string
+    CFG_COMMANDS = [
+        [
+            "gu",
+            "Get Units Settings",
+            [["alt", None], ["roc", None], ["bar", None], ["temp", None], ["sog", None]],
+        ],
+        [
+            "ga",
+            "Get Alarm Settings",
+            [["alth", None], ["altl", None], ["clmb", None], ["desc", None], ["topt", None]],
+        ],
+        [
+            "gf",
+            "Get Function Settings",
+            [
+                ["aut", "Altimeter Unit Toggle Mode"],
+                ["frs", "Flight Recorder Start Mode"],
+                ["aof", "Instrument Auto Turn Off Mode"],
+                ["dat", None],
+            ],
+        ],
+        [
+            "gv",
+            "Get Variometer Settings",
+            [
+                ["resp", "Response Time Seconds"],
+                ["audio", "Variometer Audio Mode"],
+                ["clmbt", "Climb Audio Threshold"],
+                ["desct", "Descent Audio Threshold"],
+            ],
+        ],
+        [
+            "gt",
+            "Get Temp Sensor Unit Codes",
+            [
+                ["top 1", None],
+                ["top 2", None],
+                ["top 3", None],
+                ["top 4", None],
+                ["amb 1", None],
+                ["amb 2", None],
+            ],
+        ],
+        ["gi", "Get Nonvolatile Info", [["mod", None], ["brd", None], ["date", None]]],
+        ["sn", "DBI3 Serial Number", None],
+        ["vr", "Firmware Version", None],
+        ["cc", "Battery Fuel Guage", None],
+        ["rd all", "DBI3 Current Flight Data"],
+    ]
+
+    def get_DBI3_config(self):
+        """Retrieve the DBI3 configuration data.
+
+        The DBI3 cli has commands to retrieve the current configuration data.  This method
+        walks through the commands to capture all current config data.
+
+        :return list,str:  The configuration report
+        """
+        cfg_report = []
+        self.cfg_dict = {}
+
+        # Ensure the cli is clear and initialized
+        self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
+        self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
+
+        for cfg in self.CFG_COMMANDS:
+            cfg_report.append("\nCONFIG-{}".format(cfg[1]))
+            self.cfg_dict[cfg[0]] = {"description": cfg[1]}
+            if len(cfg) == 2:
+                res = self.__get_multiline_config(cfg[0])
+            elif len(cfg) == 3:
+                res = self.__get_singleline_config(cfg[0], cfg[2])
+            else:
+                res = ["BAD CONFIG COMMAND [{}]".format(cfg)]
+                continue
+            for element in res:
+                # report lines are indented 2
+                cfg_report.append("  " + element)
+
+        return cfg_report, self.cfg_dict
+
+    def __get_multiline_config(self, cmd):
+        """Return multiline config information
+
+        The config command results in multiple lines returned and we need to force a "known"
+        output to mark the end by appending the "md mach" command.
+
+        :param str cmd:  the config cmd
+        :return list,str:  the stripped strings resulting from the config cmd
+        """
+        self.serial_fd.write(str.encode("{}\rmd mach\r".format(cmd)))
+
+        log_list = []
+
+        for res in iter(self.__readDbi3Line, None):
+            if self.verbose:
+                print("RDT multiline {}".format(res))
+            if res == "ok" or res == "nok":
+                # List ended, we got the ok/nok from the md mach command.
+                break
+
+            log_list.append(res)
+
+        if self.verbose:
+            for rs in log_list:
+                print("multiline:{}".format(rs))
+
+        self.cfg_dict[cmd]["multivalue"] = log_list
+
+        return log_list
+
+    def __get_singleline_config(self, cmd, subcmds):
+        """Return config information that comes back as a single line
+
+        Single line returns contain the config value only.  We prefix the resulting return line(s)
+        with the subcmd.  The optional subcmd string becomes the line suffix.
+
+        :param str cmd:  the base or only cmd
+        :param list,[str,str] subcmds:  optional subcommands that are appended to the base cmd
+        :return list,str:  list of one or more strings corresponding to the cmd and subcmds
+        """
+        log_list = []
+
+        if subcmds is None:
+            self.serial_fd.write(str.encode("{}\r".format(cmd)))
+            res = self.__readDbi3Line()
+            log_list.append("{}".format(res))
+            self.cfg_dict[cmd]["value"] = res
+        else:
+            self.cfg_dict[cmd]["subcmd"] = {}
+            for sub in subcmds:
+                self.serial_fd.write(str.encode("{} {}\r".format(cmd, sub[0])))
+                line = self.__readDbi3Line()
+                res = "{}={}".format(sub[0], line)
+                self.cfg_dict[cmd]["subcmd"][sub[0]] = {}
+                self.cfg_dict[cmd]["subcmd"][sub[0]]["value"] = line
+                if sub[1] is not None:
+                    # The optional description begins at column 18 and
+                    # at least 2 characters after the subcmd result
+                    res += " " * min(2, (18 - len(res))) + sub[1]
+                    self.cfg_dict[cmd]["subcmd"][sub[0]]["description"] = sub[1]
+                log_list.append(res)
+
+        return log_list
 
     def __readDbi3Line(self):
         """Read serial port until eol string or timeout.
