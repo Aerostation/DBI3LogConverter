@@ -101,6 +101,7 @@ class DBI3LogDownload:
             None  # will contain the DBI serial number when the port is opened/initialized.
         )
         self.valid_only = app_config.CLI_skip_invalid
+        self.cfg_dict = {}  # to hold the current DBI3 config settings
 
         self.readline_buf = bytearray()  # init buffer for our block mode readline
         if app_config.log_path is None or not os.path.isdir(app_config.log_path):
@@ -236,6 +237,7 @@ class DBI3LogDownload:
                 if not os.path.isfile(os.path.join(p_path, item)):
                     continue  # skip non-files
                 try:
+                    # noinspection PyTypeChecker
                     dt = datetime.strptime(item, "%Y_%m_%d_%H_%M_%S.log")
                 except ValueError as e:
                     if self.debug:
@@ -294,8 +296,6 @@ class DBI3LogDownload:
         self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
         self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
 
-        self.serial_fd.write(str.encode("fs list\rmd mach\r"))
-
         p_path = os.path.join(self.log_path, self.dbi3_sn)
 
         dt_limit = None
@@ -304,6 +304,8 @@ class DBI3LogDownload:
             dt_limit = self.new_limit
         elif self.app_config.CLI_age_limit is not None:
             dt_limit = self.app_config.CLI_age_limit
+
+        self.serial_fd.write(str.encode("fs list\rmd mach\r"))
         log_list = []
 
         if self.verbose:
@@ -359,7 +361,6 @@ class DBI3LogDownload:
             )
 
         log_list.sort()
-        print("DBI3 Log list length {}".format(len(log_list)))
         if self.verbose:
             for rs in log_list:
                 print(
@@ -509,6 +510,7 @@ class DBI3LogDownload:
             for rs in log_list:
                 print("multiline:{}".format(rs))
 
+        # noinspection PyTypeChecker
         self.cfg_dict[cmd]["multivalue"] = log_list
 
         return log_list
@@ -531,17 +533,21 @@ class DBI3LogDownload:
             log_list.append("{}".format(res))
             self.cfg_dict[cmd]["value"] = res
         else:
+            # noinspection PyTypeChecker
             self.cfg_dict[cmd]["subcmd"] = {}
             for sub in subcmds:
                 self.serial_fd.write(str.encode("{} {}\r".format(cmd, sub[0])))
                 line = self.__readDbi3Line()
                 res = "{}={}".format(sub[0], line)
+                # noinspection PyTypeChecker
                 self.cfg_dict[cmd]["subcmd"][sub[0]] = {}
+                # noinspection PyTypeChecker
                 self.cfg_dict[cmd]["subcmd"][sub[0]]["value"] = line
                 if sub[1] is not None:
                     # The optional description begins at column 18 and
                     # at least 2 characters after the subcmd result
                     res += " " * min(2, (18 - len(res))) + sub[1]
+                    # noinspection PyTypeChecker
                     self.cfg_dict[cmd]["subcmd"][sub[0]]["description"] = sub[1]
                 log_list.append(res)
 
@@ -638,10 +644,8 @@ class DBI3LogDownload:
                 res = self.__readDbi3Line()
         minutes, seconds = divmod((datetime.now() - beg_down).total_seconds(), 60)
         minutes = int(minutes)
-        get_log().info(
-            "LOG download-{} ({} records in {:02d}:{:06.3f})".format(
-                log_name, line_count, minutes, seconds
-            )
+        return "LOG download-{} ({} records in {:02d}:{:06.3f})".format(
+            log_name, line_count, minutes, seconds
         )
 
     def download_new_logs(self, log_list):

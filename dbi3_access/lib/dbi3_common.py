@@ -8,6 +8,8 @@ DBI3 common definitions/declarations
 
 """
 import os
+import sys
+import threading
 import collections
 
 try:
@@ -70,3 +72,27 @@ LogList = collections.namedtuple(
 # 25May20 - GPS ALT and PRES ALT are automatically added based on availability and GPS preference config
 DBI_ALL_LOG_FIELDS = ["ROC", "TOPT", "AMBT", "DIFF", "SOG", "COG", "BATM", "BRDT"]
 DBI_DEFAULT_LOG_FIELDS = ["ROC", "TOPT", "AMBT", "DIFF", "SOG", "COG"]
+
+
+class Spinner:
+    """Create a thread printing a spinner character until commanded to stop"""
+
+    def __init__(self):
+        self.e = threading.Event()
+        self.t = threading.Thread(target=self.spin, args=(self.e,))
+        self.t.start()
+
+    def stop(self):
+        self.e.set()  # Flag the thread to stop
+        self.t.join(2.0)
+
+    @staticmethod
+    def spin(e):
+        spin_char = r"\|/-\|/-"
+        while True:
+            for ch in spin_char:
+                sys.stdout.write(ch)
+                xit = e.wait(0.25)  # wait for 1/4 sec or exit event
+                sys.stdout.write("\b")
+                if xit:
+                    return

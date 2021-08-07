@@ -29,6 +29,7 @@ from dbi3_access.lib.dbi3_common import (
     DBI_CONF_FILE,
     DEF_LOG_PATH,
     DEF_KML_PATH,
+    Spinner,
 )
 from dbi3_access.lib.dbi3_config_options import Dbi3ConfigOptions
 from dbi3_access.lib.audit_utils import init_logger, get_log
@@ -297,9 +298,7 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
             # open config report file and write the data.
             # Embed the SN and current UTC time in the filename.
             time_string = datetime.utcnow().strftime("%Y%m%d_%H%M")
-            cfg_file = "DBI3_{}_{}.cfg".format(
-                down_load.dbi3_sn, time_string
-            )
+            cfg_file = "DBI3_{}_{}.cfg".format(down_load.dbi3_sn, time_string)
             cfg_file_path = os.path.join(app_config.log_path, cfg_file)
             # Add a header line to the report
             report.insert(
@@ -313,9 +312,7 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
                     f.write(res + "\n")
 
             if "json" in args:
-                cfg_file = "DBI3_{}_{}.json".format(
-                    down_load.dbi3_sn, time_string
-                )
+                cfg_file = "DBI3_{}_{}.json".format(down_load.dbi3_sn, time_string)
                 cfg_file_path = os.path.join(app_config.log_path, cfg_file)
                 with open(cfg_file_path, "w") as f:
                     json.dump(cfg_dict, f, indent=4)
@@ -348,9 +345,14 @@ class Dbi3LogListCommands(cmd.Cmd):
 
     def do_refresh(self, line):
         """Re-read the DBI3 log list"""
+        if not app_config.verbose:
+            sp = Spinner()  # py threading - DBI3 i/o does not yield to spinner :-(
         self.my_list = []
         for le in self.down_load.get_DBI3_log_list():
             self.my_list.append([le.new_file, le])
+        if not app_config.verbose:
+            sp.stop()
+        print("DBI3 Log list length {}".format(len(self.my_list)))
 
     def do_list(self, line):
         """Display the DBI3 logs available for download.
@@ -368,7 +370,7 @@ Selected logs are marked with "*" after the line number.
                         le[1].log_name,
                         "(new)" if le[1].new_file else "     ",
                         le[1].start_dt.astimezone().strftime("%H:%M:%S"),
-                        le[1].end_dt.astimezone().strftime("%H:%M:%S %Z"),
+                        le[1].end_dt.astimezone().strftime("%H:%M:%S%z"),
                         le[1].end_dt - le[1].start_dt,
                     )
                 )
@@ -394,8 +396,13 @@ Selected logs are marked with "*" after the line number.
         """Download the selected logs."""
         for le in self.my_list:
             if le[0]:  # list row is marked as selected
-                self.down_load.get_DBI3_log(le[1].name_start)
+                if not app_config.verbose:
+                    sp = Spinner()
+                res = self.down_load.get_DBI3_log(le[1].name_start)
                 le[0] = False  # clear the select flag
+                if not app_config.verbose:
+                    sp.stop()
+                get_log().info(res)
 
     def do_convert(self, line):
         """Download AND convert the selected logs."""
@@ -479,6 +486,8 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
 
     def do_refresh(self, line):
         """Re-read the local DBI3 logs available for KML conversion, reset selections"""
+        if not app_config.verbose:
+            sp = Spinner()
         self.conv_list.refresh_list()
         self.my_list = []
         for le in self.conv_list.conversion_list:
@@ -490,6 +499,8 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
             # create my_list from conversion_list.  automatically select "new_file" and add the
             # field for KML track statistics.
             self.my_list.append([le.new_file, le, log_stats])
+        if not app_config.verbose:
+            sp.stop()
 
     def do_list(self, line):
         """Display the DBI3 logs available for KML conversion.
@@ -520,7 +531,7 @@ Selected logs are marked with "*" after the line number.
                 print(
                     "       {} to {}".format(
                         le[2].gps_start.astimezone().strftime("%H:%M:%S"),
-                        le[2].gps_end.astimezone().strftime("%H:%M:%S %Z"),
+                        le[2].gps_end.astimezone().strftime("%H:%M:%S%z"),
                     )
                 )
 
