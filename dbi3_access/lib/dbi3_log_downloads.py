@@ -612,7 +612,7 @@ class DBI3LogDownload:
         from a very long duration log.
 
         :param str name: rad26 name of the DBI3 log to download
-        :return:
+        :return str:  Report of the download results
         """
         self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
         self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
@@ -655,15 +655,13 @@ class DBI3LogDownload:
         in the list elements.
 
             :param list,LogList log_list: list of logs on the DBI3
-            :return int:
-                0 - Success
-                1 - no comm port available, skip the download
-                -1 - error
+            :return str[]: Reports of log_list download results
        """
 
         # Download all logs that we don't already have
+        ret = []
         for rs in log_list:
             if rs.new_file:
-                self.get_DBI3_log(rs.name_start)
+                ret.append(self.get_DBI3_log(rs.name_start))
 
-        return 0
+        return ret

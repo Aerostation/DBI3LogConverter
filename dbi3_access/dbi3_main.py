@@ -60,8 +60,12 @@ def convert_new_logs(app_config):
     conv_list.refresh_list()
     for le in conv_list.conversion_list:
         if le.new_file:  # only process files marked as new
+            if not app_config.verbose:
+                sp = Spinner()
             dbi3_obj = Dbi3LogConversion(le.log_filename, app_config)
             rtn, rtn_str = dbi3_obj.kml_convert(le.kml_filename)
+            if not app_config.verbose:
+                sp.stop()
             if rtn < 0:
                 get_log().info(
                     "Convert FAILED {} to KML  new:{}  edits:{}   to {}\n{}".format(
@@ -95,10 +99,16 @@ def process_dbi():
         # log list elements contain list 'startRad26, stopRad26, start_dt, stop_dt, log_filename'
         # The log list automatically marks new logs as selected for download.
         down_load = DBI3LogDownload(app_config)
+        if not app_config.verbose:
+            sp = Spinner()
         log_list = down_load.get_DBI3_log_list(True)
 
         if log_list is not None:
-            down_load.download_new_logs(log_list)
+            rtn = down_load.download_new_logs(log_list)
+        if not app_config.verbose:
+            sp.stop()
+        if rtn:
+            get_log().info("\n  ".join(rtn))
 
     except IOError as e:
         if down_load is not None and down_load.dbi3_sn is not None:
@@ -408,11 +418,20 @@ Selected logs are marked with "*" after the line number.
         """Download AND convert the selected logs."""
         for le in self.my_list:
             if le[0]:  # list row is marked as selected
-                self.down_load.get_DBI3_log(le[1].name_start)
+                if not app_config.verbose:
+                    sp = Spinner()
+                res = self.down_load.get_DBI3_log(le[1].name_start)
+                if not app_config.verbose:
+                    sp.stop()
+                get_log().info(res)
                 p_path = os.path.join(app_config.log_path, self.down_load.dbi3_sn)
                 kml_name = le[1].start_dt.strftime("%Y%m%d_%H%M_{}".format(self.down_load.dbi3_sn))
+                if not app_config.verbose:
+                    sp = Spinner()
                 dbi3_obj = Dbi3LogConversion(os.path.join(p_path, le[1].log_name), app_config)
                 rtn, rtn_str = dbi3_obj.kml_convert(os.path.join(app_config.kml_path, kml_name))
+                if not app_config.verbose:
+                    sp.stop()
                 if rtn < 0:
                     get_log().info(
                         "Convert {} to {} FAILED: {}".format(le[1].log_name, kml_name, rtn_str)
@@ -572,8 +591,12 @@ Selected logs are marked with "*" after the line number.
         # le array, [0]=select bool, [1]=ConversionList namedtuple
         for le in self.my_list:
             if le[0]:
+                if not app_config.verbose:
+                    sp = Spinner()
                 dbi3_obj = Dbi3LogConversion(le[1].log_filename, app_config)
                 rtn, rtn_str = dbi3_obj.kml_convert(le[1].kml_filename)
+                if not app_config.verbose:
+                    sp.stop()
                 if rtn < 0:
                     get_log().info(
                         "Convert {} to KML {} FAILED: {}".format(
@@ -858,8 +881,12 @@ format is "YYYY_MM_DD_hh_mm_ss.log".  KML output to the kml_path has a filename 
             args.file = os.path.join(os.path.expanduser("~"), args.file[2:])
         args.file = os.path.realpath(args.file)  # clean up the path
         kml_file = os.path.splitext(args.file)[0] + "_DBI3"
+        if not app_config.verbose:
+            sp = Spinner()
         dbi3_obj = Dbi3LogConversion(args.file, app_config)
         rtn, rtn_str = dbi3_obj.kml_convert(kml_file)
+        if not app_config.verbose:
+            sp.stop()
         if rtn < 0:
             print("Convert {} to {} FAILED: {}".format(args.file, kml_file, rtn_str))
         elif rtn > 0 and app_config.verbose:

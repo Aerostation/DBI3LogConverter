@@ -75,7 +75,11 @@ DBI_DEFAULT_LOG_FIELDS = ["ROC", "TOPT", "AMBT", "DIFF", "SOG", "COG"]
 
 
 class Spinner:
-    """Create a thread printing a spinner character until commanded to stop"""
+    """Create a thread printing a spinner character until commanded to stop.
+
+    Other output while the spinner is running will get mixed up, so don't
+    use this with verbose output.
+    """
 
     def __init__(self):
         self.e = threading.Event()
