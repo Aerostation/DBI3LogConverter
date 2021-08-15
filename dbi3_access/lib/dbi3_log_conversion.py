@@ -452,18 +452,19 @@ class Dbi3LogConversion:
     Parse the DBI3 log file, then provide methods to output various conversion formats.
     """
 
-    def __init__(self, filename, config):
+    def __init__(self, filename, config, altitude_offset=None):
         """
         Initialize the config object, parse the log file.
 
         :param filename: DBI3 log filename
         :param Dbi3ConfigOptions config:  Application options object
+        :param float altitude_offset:  For single file conversion, optional alt offset in meters.
         """
 
         self.filename = filename
 
         self.app_config = config
-        self.kml_cfg = Dbi3ConversionOptions(filename, config)
+        self.kml_cfg = Dbi3ConversionOptions(filename, config, altitude_offset)
         if self.app_config.verbose:
             print("Dbi3LogConversion - kml_cfg - {}".format(self.kml_cfg))
 

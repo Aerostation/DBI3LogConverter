@@ -12,6 +12,8 @@ to KML for that DBI3 SN.
 """
 # TODO Log download and conversions to rolling journal for historical reference.  Include edits
 from __future__ import print_function
+
+import errno
 import os
 import argparse
 import cmd
@@ -242,6 +244,11 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
             Dbi3LogListCommands().cmdloop()
         except IOError as e:
             print("Can not access DBI3: {}".format(e))
+            if e.errno == errno.EACCES:
+                print(
+                    "   On Linux you may need to add the user to the dialout group--\n"
+                    "   'sudo addgroup $USER dialout'"
+                )
         return Cmd_exit  # Global flag to indicate exit from nested Cmd
 
     def do_kml(self, line):
@@ -299,6 +306,11 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
             report, cfg_dict = down_load.get_DBI3_config()
         except IOError as e:
             print("Can not access DBI3: {}".format(e))
+            if e.errno == errno.EACCES:
+                print(
+                    "   On Linux you may need to add the user to the dialout group--\n"
+                    "   'sudo addgroup $USER dialout'"
+                )
             return False
         if "show" in args:
             # Display the config on the terminal
@@ -858,7 +870,6 @@ format is "YYYY_MM_DD_hh_mm_ss.log".  KML output to the kml_path has a filename 
     app_config = Dbi3ConfigOptions(
         altitudemode=args.altitudemode,
         extend_to_ground=args.extend_to_ground,
-        altitude_offset=args.altitude_offset,
         fields_choice=args.fields,
         kml_use_metric=args.useMetric,
         age_limit=None if args.age_limit is None else int(args.age_limit),
@@ -883,7 +894,7 @@ format is "YYYY_MM_DD_hh_mm_ss.log".  KML output to the kml_path has a filename 
         kml_file = os.path.splitext(args.file)[0] + "_DBI3"
         if not app_config.verbose:
             sp = Spinner()
-        dbi3_obj = Dbi3LogConversion(args.file, app_config)
+        dbi3_obj = Dbi3LogConversion(args.file, app_config, altitude_offset=args.altitude_offset)
         rtn, rtn_str = dbi3_obj.kml_convert(kml_file)
         if not app_config.verbose:
             sp.stop()

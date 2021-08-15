@@ -96,7 +96,9 @@ class Spinner:
         while True:
             for ch in spin_char:
                 sys.stdout.write(ch)
-                xit = e.wait(0.25)  # wait for 1/4 sec or exit event
+                sys.stdout.flush()
+                xit = e.wait(0.2)  # wait for 1/4 sec or exit event
                 sys.stdout.write("\b")
+                sys.stdout.flush()
                 if xit:
                     return

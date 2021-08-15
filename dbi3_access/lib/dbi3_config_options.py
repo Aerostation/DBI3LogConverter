@@ -88,7 +88,6 @@ class Dbi3ConfigOptions:
         sn=None,
         prefer_gps=None,
         altitudemode=None,
-        altitude_offset=None,
         extend_to_ground=None,
         verbose=None,
         fields_choice=None,
@@ -173,7 +172,7 @@ class Dbi3ConfigOptions:
         if os.path.isfile(self.conf_file):
             with open(self.conf_file, "r") as conf_file:
                 data = json.load(conf_file)
-        print("CONFIG-{}".format(json.dumps(data)))
+        # print("CONFIG File Content-{}\m".format(json.dumps(data, indent=2)))
         AppConfig = [
             ConfigSpec(
                 "log_path",
@@ -276,6 +275,7 @@ class Dbi3ConfigOptions:
         ]
 
         self._update_config_file(self.conf_file, AppConfig, data)
+        print("\nAny changes to the config file will not take affect until the program restarts.")
 
     def edit_conversion_config(self, cfg_path):
         self.meta_start_date = datetime.strptime(os.path.basename(cfg_path), ".%Y_%m_%d_%H_%M_%S")
@@ -633,13 +633,13 @@ class Dbi3ConversionOptions:
 
         :param str filename: The full path to the log file, used to compute metadata filename
         :param Dbi3ConfigOptions app_config:
-        :param float altitude_offset: optional command line argument to offset pressure altitude
+        :param float altitude_offset: optional argument in meters to offset pressure altitude
         """
 
         # Establish config defaults
         self.log_filename = filename
         self.altitudemode = app_config.altitudemode
-        self.altitude_offset = altitude_offset  # floating point
+        self.altitude_offset = altitude_offset  # floating point meters
         self.extend_to_ground = app_config.extend_to_ground
         self.kml_fields = app_config.kml_fields
         self.kml_use_metric = app_config.kml_use_metric

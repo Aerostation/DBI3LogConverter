@@ -31,6 +31,11 @@ default the _log_path_ to *~/Documents/DBI3logs*, _kml_path_ to *~/Documents/DBI
 port to None.  Comm port=None causes the application to search the USB for the correct
 VID/PID used by the DBI3 interface chip.
 
+**NOTE:**
+On Linux, the user running DBI3cli must have permission to open the USB port.  
+This is usually accomplished by adding the user to the "dialout" group which
+has R/W access to the serial ports.
+
 For the end user, this python script is packaged into a self contained executable that
 requires no other installations on the users computer (currently supported for 64-bit Windows 10 and Linux)
 
@@ -69,6 +74,37 @@ black .
 ```
 The --check will report on the files that WOULD be changed.
 
+#### DEVELOPMENT ENV -
+Python 2.7 support may have broken due to limited datetime/timezone support.
+
+On Linux, using virtualenv/virtualenvwrapper makes it easier to keep a clean
+development environment that doesn't shift with system updates.
+
+Env DBI3dev can be created with python3 as the interpreter and just the packages
+required can be pip installed.
+
+For my latest VirtualBox VM of Ubuntu 20.04:
+```commandline
+sudo adduser thornton dialout  # for access to /dev/tty/USB?
+sudo adduser thornton vboxsf   # for VirtualBox share mount
+
+sudo apt install python3, python3-dev, python3-virtualenv, python3-virtualenvwrapper
+sudo apt install binutils, meld, vim, gitk, python3-tk-dbg
+ADD TO .bashrc:
+# Python virtualenv setup
+export WORKON_HOME=/$HOME/.virtualenvs
+#export PROJECT_HOME=$HOME/Devel
+source /usr/share/virtualenvwrapper/virtualenvwrapper.sh
+
+source ~/.bashrc
+
+mkvirtualenv --python /usr/bin/python3 DBI3dev
+
+workon DBI3dev  # switch to the DBI python development env
+pip install simplekml, serial, pyinstaller, setuptools_scm
+
+```
+
 #### BUILD via build.sh -
 
 Pyinstaller is used to package DBI3cli into a single executable file for Windows 10 and Linux.
@@ -81,10 +117,11 @@ Prior to a release build, the repository should be up-to-date and then
 ```commandline
 git tag -l -n4
 git tag -a -m "tag message" n.m
+git push origin n.m
 ```
-to create the next tag number in the series.  'git tag -l' lists the current tags and messages.
+to create the next tag number in the series.  Tags do not get pushed with commits and require their own push.  'git tag -l' lists the current tags and messages.
 
-On windows this is done from a "GIT Bash" window (part of Git for Windows
+On windows the build is done from a "GIT Bash" window (part of Git for Windows
 https://gitforwindows.org/) which is a Linux
 like format and has
 git in the PATH for the automatic versioning.
