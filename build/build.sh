@@ -9,8 +9,8 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
 if [[ $OS = 'Windows_NT' ]]
 then
-    PYTHON_CMD='/c/Python27/python'
-    PYINSTALLER_CMD='/c/Python27/Scripts/pyinstaller'
+    PYTHON_CMD='/c/Python37/python'
+    PYINSTALLER_CMD='/c/Python37/Scripts/pyinstaller'
 else
     PYTHON_CMD='python'
     PYINSTALLER_CMD='pyinstaller'
