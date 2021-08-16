@@ -16,12 +16,12 @@ import math
 import re
 
 try:
-    from dbi3_common import ConversionList, SummaryList, utc, DBI_DEFAULT_LOG_FIELDS
+    from dbi3_common import ConversionList, SummaryList, utc, UTC_FMT, DBI_DEFAULT_LOG_FIELDS
     from dbi3_log_downloads import DBI3LogDownload
     from dbi3_config_options import Dbi3ConfigOptions, Dbi3ConversionOptions
     from audit_utils import init_logger, get_log
 except ImportError:
-    from .dbi3_common import ConversionList, SummaryList, utc, DBI_DEFAULT_LOG_FIELDS
+    from .dbi3_common import ConversionList, SummaryList, utc, UTC_FMT, DBI_DEFAULT_LOG_FIELDS
     from .dbi3_log_downloads import DBI3LogDownload
     from .dbi3_config_options import Dbi3ConfigOptions, Dbi3ConversionOptions
     from .audit_utils import init_logger, get_log
@@ -173,7 +173,7 @@ class Dbi3Log:
                     # datetime from a start or end line
                     log_datetime = datetime.strptime(
                         logvars["DATE"] + " " + logvars["TIME"], "%Y-%m-%d %H:%M:%S"
-                    )
+                    ).replace(tzinfo=utc)
                 else:
                     log_datetime = None
 
@@ -190,7 +190,7 @@ class Dbi3Log:
                     if self.dbi3_sn is None:
                         self.dbi3_sn = logvars["SN"]
                     log_state = 2
-                    self.proc_log += "  Start time " + start_datetime.isoformat(" ")
+                    self.proc_log += "  Start time " + start_datetime.strftime(UTC_FMT)
                 elif log_state > 1 and log_datetime is not None:
                     # START record was processed, the next record with a DATE is the END record
                     end_datetime = log_datetime
@@ -198,16 +198,16 @@ class Dbi3Log:
                     if missing_key is None:
                         log_state = 3
                         if self.kml_start_time is not None:
-                            self.proc_log += (
-                                " --First GPS record " + self.kml_start_time.isoformat(" ")
+                            self.proc_log += " --First GPS record " + self.kml_start_time.strftime(
+                                UTC_FMT
                             )
                         self.proc_log += "\n  Total records={}  data records={}  trim records={}  bad records={}".format(
                             self.total_log_recs, self.data_recs, self.trim_recs, self.bad_recs
                         )
-                        self.proc_log += "\n  End time " + end_datetime.isoformat(" ")
+                        self.proc_log += "\n  End time " + end_datetime.strftime(UTC_FMT)
                         if self.kml_end_time is not None:
-                            self.proc_log += " --Last GPS record " + self.kml_end_time.isoformat(
-                                " "
+                            self.proc_log += " --Last GPS record " + self.kml_end_time.strftime(
+                                UTC_FMT
                             )
                     else:
                         print("End record missing field " + missing_key)
@@ -855,7 +855,9 @@ class Dbi3KmlList:
                 continue
             try:
                 # This strptime also verifies the filename format
-                dt = datetime.strptime(item, "%Y%m%d_%H%M_{}.kml".format(config.sn))
+                dt = datetime.strptime(item, "%Y%m%d_%H%M_{}.kml".format(config.sn)).replace(
+                    tzinfo=utc
+                )
             except ValueError as e:
                 # Could be the kml didn't match our current SN for logs
                 if self.debug:
@@ -863,7 +865,7 @@ class Dbi3KmlList:
                 continue
             if dt is not None:
                 # make new_limit timezone aware
-                self.new_limit = dt.replace(tzinfo=utc) + timedelta(minutes=1)
+                self.new_limit = dt + timedelta(minutes=1)
                 if config.verbose:
                     print("DBI3 KML computed new file threshold: {}".format(self.new_limit))
                 break

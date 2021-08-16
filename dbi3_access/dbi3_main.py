@@ -216,9 +216,7 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
                         app_config.CLI_age_limit = None
                     else:
                         app_config.age_limit = age
-                        app_config.CLI_age_limit = (
-                            datetime.utcnow() - timedelta(days=age)
-                        ).replace(tzinfo=utc)
+                        app_config.CLI_age_limit = datetime.now(utc) - timedelta(days=age)
                 except ValueError as e:
                     print("ERROR: unknown filter time {} : {}".format(ln, e))
                     continue
@@ -319,14 +317,14 @@ class Dbi3InteractiveCommandLine(cmd.Cmd):
         else:
             # open config report file and write the data.
             # Embed the SN and current UTC time in the filename.
-            time_string = datetime.utcnow().strftime("%Y%m%d_%H%M")
+            time_string = datetime.now(utc).strftime("%Y%m%d_%H%M")
             cfg_file = "DBI3_{}_{}.cfg".format(down_load.dbi3_sn, time_string)
             cfg_file_path = os.path.join(app_config.log_path, cfg_file)
             # Add a header line to the report
             report.insert(
                 0,
                 "DBI3 {} configuration data on {} UTC".format(
-                    down_load.dbi3_sn, datetime.utcnow().strftime("%c")
+                    down_load.dbi3_sn, datetime.now(utc).strftime("%c")
                 ),
             )
             with open(cfg_file_path, "w") as f:
@@ -877,9 +875,7 @@ format is "YYYY_MM_DD_hh_mm_ss.log".  KML output to the kml_path has a filename 
     )
 
     if app_config.age_limit is not None:  # If age_limit is set, create the datetime equivelent
-        app_config.CLI_age_limit = (
-            datetime.utcnow() - timedelta(days=app_config.age_limit)
-        ).replace(tzinfo=utc)
+        app_config.CLI_age_limit = datetime.now(utc) - timedelta(days=app_config.age_limit)
     else:
         app_config.CLI_age_limit = None
     app_config.CLI_new_logs = app_config.filter_new

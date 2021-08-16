@@ -34,6 +34,7 @@ except ImportError:
 
     utc = UTC()  # tzinfo for UTC
 
+UTC_FMT = "%Y-%m-%d %H:%M:%S"  # strftime format for UTC output
 
 DBI_CONF_FILE = os.path.join(os.path.expanduser("~"), ".DBI3config")  # hidden DBI3 config filename
 DEF_LOG_PATH = os.path.join(os.path.expanduser("~"), "Documents", "DBI3logs")

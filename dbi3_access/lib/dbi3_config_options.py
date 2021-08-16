@@ -278,7 +278,9 @@ class Dbi3ConfigOptions:
         print("\nAny changes to the config file will not take affect until the program restarts.")
 
     def edit_conversion_config(self, cfg_path):
-        self.meta_start_date = datetime.strptime(os.path.basename(cfg_path), ".%Y_%m_%d_%H_%M_%S")
+        self.meta_start_date = datetime.strptime(
+            os.path.basename(cfg_path), ".%Y_%m_%d_%H_%M_%S"
+        ).replace(tzinfo=utc)
         data = {}
         if os.path.isfile(cfg_path):
             with open(cfg_path, "r") as conf_file:
@@ -667,9 +669,13 @@ class Dbi3ConversionOptions:
                     setattr(self, field, data[field])
             # the trim fields need to be converted to datetime.
             if self.trim_start_time is not None:
-                self.trim_start_time = datetime.strptime(self.trim_start_time, "%Y%m%d%H%M%S")
+                self.trim_start_time = datetime.strptime(
+                    self.trim_start_time, "%Y%m%d%H%M%S"
+                ).replace(tzinfo=utc)
             if self.trim_end_time is not None:
-                self.trim_end_time = datetime.strptime(self.trim_end_time, "%Y%m%d%H%M%S")
+                self.trim_end_time = datetime.strptime(self.trim_end_time, "%Y%m%d%H%M%S").replace(
+                    tzinfo=utc
+                )
 
     def __str__(self):
         return (

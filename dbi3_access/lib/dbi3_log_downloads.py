@@ -238,15 +238,14 @@ class DBI3LogDownload:
                     continue  # skip non-files
                 try:
                     # noinspection PyTypeChecker
-                    dt = datetime.strptime(item, "%Y_%m_%d_%H_%M_%S.log")
+                    dt = datetime.strptime(item, "%Y_%m_%d_%H_%M_%S.log").replace(tzinfo=utc)
                 except ValueError as e:
                     if self.debug:
                         print("Parse error of {}:{}".format(item, e))
                     continue  # skip wrong format file names
                 # The first valid strptime is the latest log file
                 if dt is not None:
-                    # make new_limit timezone aware
-                    self.new_limit = dt.replace(tzinfo=utc) + timedelta(seconds=1)
+                    self.new_limit = dt + timedelta(seconds=1)
                     if self.verbose:
                         print("DBI3 new file threshold: {}".format(self.new_limit))
                     break
@@ -372,7 +371,7 @@ class DBI3LogDownload:
         return log_list
 
     def delete_DBI3_log(self, name):
-        start_dt = datetime.utcnow()
+        start_dt = datetime.now(utc)
         print("Deleting log {}".format(name))
         self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
         self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
@@ -385,7 +384,7 @@ class DBI3LogDownload:
         self.serial_fd.timeout = orig_timeout
         print(
             "fs delete result={}({}) in {:0.2f} seconds".format(
-                res, len(res), (datetime.utcnow() - start_dt).total_seconds()
+                res, len(res), (datetime.now(utc) - start_dt).total_seconds()
             )
         )
         return True
