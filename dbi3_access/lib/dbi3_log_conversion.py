@@ -183,7 +183,8 @@ class Dbi3Log:
                         print("Start record missing field " + missing_key)
                         break
                     start_datetime = log_datetime
-                    rec_time = log_datetime  # first data record timestamp is start
+                    # rec_time is incremented at the BEGINNING of each data loop, so initially decrement here.
+                    rec_time = log_datetime - TWO_SECONDS
                     self.dbi3_fwver = logvars["FWVER"]
                     # fw ver 1.2 had a dummy SN in the log header so we override by extracting from the
                     # DBI3 serial cli, but if that wasn't supplied then use the log field.
@@ -214,6 +215,7 @@ class Dbi3Log:
                     break
                 else:
                     # This should be a DATA record
+                    rec_time += TWO_SECONDS
                     missing_key = self.__field_check(DATA_FIELDS, logvars)
                     if missing_key is None:
                         if logvars["GPSS"] == "0":
@@ -385,7 +387,6 @@ class Dbi3Log:
                         print("Data record missing field " + missing_key)
                         self.bad_recs += 1
                     # Do we increment the time before or after the data records?
-                    rec_time += TWO_SECONDS
             self.kml_end_lat = last_lat
             self.kml_end_lon = last_lon
 

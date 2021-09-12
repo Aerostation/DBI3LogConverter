@@ -524,6 +524,8 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
             log_stats = dbi3_obj.log_summary()
             if app_config.CLI_skip_invalid:
                 if log_stats.status <= 0:
+                    if app_config.verbose:
+                        print("Log {} dropped from list for status {} <= 0".format(le.log_name, log_stats.status))
                     continue
             # create my_list from conversion_list.  automatically select "new_file" and add the
             # field for KML track statistics.
@@ -563,6 +565,8 @@ Selected logs are marked with "*" after the line number.
                         le[2].gps_end.astimezone().strftime("%H:%M:%S%z"),
                     )
                 )
+        # Reminder about the current list filter
+        print("CURRENT LIST FILTER: [{}]\n".format(filter_text()))
 
     def do_select(self, line):
         """Select/deselect LOG list rows for KML conversion. [all, none, new, #, #-#, -#]"""
@@ -595,6 +599,7 @@ Selected logs are marked with "*" after the line number.
 
         print("\nConversion options for: {}".format(le[1].log_name))
         app_config.edit_conversion_config(le[1].meta_name)
+        self.do_refresh("")  # heavy hammer! Assume edit affected the list and refresh
 
     def do_convert(self, line):
         """Convert the currently selected DBI3 logs to KML"""
