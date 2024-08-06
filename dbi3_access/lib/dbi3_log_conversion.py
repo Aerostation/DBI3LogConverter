@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# vim: set shiftwidth=4 softtabstop=4 autoincrement expandtab:
+# vim: set shiftwidth=4 softtabstop=4 autoindent expandtab:
 ###########################################################################
 # Copyright (C) Aerostation/Ronald Thornton 2020
 # All rights reserved.
@@ -70,6 +70,7 @@ class Dbi3Log:
         self.dbi3_sn = sn
         self.kml_cfg = kml_cfg
         self.dbi3_fwver = None
+        self.gpss_valid = "0"  # Thru fwver 1.8, gps valid was "0".  Then it was "1"
 
         self.proc_log = ""  # Accumulate print output from the entire conversion
 
@@ -159,7 +160,10 @@ class Dbi3Log:
                 self.total_log_recs += 1
                 logvars = {}
                 try:
-                    line = line.rstrip("\r\n")
+                    line = line.strip()
+                    if line == "":  # Skip empty lines
+                        self.total_log_recs -= 1  # don't count the empty lines
+                        continue  # skip empty line
                     arg_pairs = line.split(" ")
                     for p in arg_pairs:  # type: str
                         var, val = p.split("=")  # type: (str, str)
@@ -186,6 +190,8 @@ class Dbi3Log:
                     # rec_time is incremented at the BEGINNING of each data loop, so initially decrement here.
                     rec_time = log_datetime - TWO_SECONDS
                     self.dbi3_fwver = logvars["FWVER"]
+                    if float(self.dbi3_fwver) > 1.8:
+                        self.gpss_valid = "1"  # fwver 2.2 reversed the gpss valid value
                     # fw ver 1.2 had a dummy SN in the log header so we override by extracting from the
                     # DBI3 serial cli, but if that wasn't supplied then use the log field.
                     if self.dbi3_sn is None:
@@ -218,7 +224,7 @@ class Dbi3Log:
                     rec_time += TWO_SECONDS
                     missing_key = self.__field_check(DATA_FIELDS, logvars)
                     if missing_key is None:
-                        if logvars["GPSS"] == "0":
+                        if logvars["GPSS"] == self.gpss_valid:
                             ####
                             # This is a data record and it has GPS data
                             ####
@@ -248,6 +254,7 @@ class Dbi3Log:
                                     + logvars["LONG"]
                                 )
 
+                            # TODO catch all parse errors as bad_recs
                             # calculate and accumulate KML data
                             latitude = self.__ddmm2d(logvars["LAT"])
                             self.kml_lat.append(latitude)
@@ -391,6 +398,11 @@ class Dbi3Log:
             self.kml_end_lon = last_lon
 
             rtn_val = self.data_recs if log_state == 3 else -1
+
+            if debug:
+                print(" Start time " + start_datetime.strftime(UTC_FMT))
+                print("  Status {}".format(rtn_val))
+                print("  proc log: " + self.proc_log)
 
             return SummaryList(
                 status=rtn_val,

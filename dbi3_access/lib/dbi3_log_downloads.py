@@ -10,7 +10,7 @@ Classes to download and/or delete DBI3 log files on the DBI3
 DBI3 log names are the encoded start and end times of the log.
 
 DBI3 log list consists of 2 7-character strings representing the start and end time.
-The 7 character strings are 32 bit integers, RAD26 encoded using uppercase A-Z characters.
+The 7 character strings are 32-bit integers, RAD26 encoded using uppercase A-Z characters.
 The resulting numbers are in DOS FAT timestamp encoded format.
 
 2 Bytes - Date
@@ -48,7 +48,7 @@ except ImportError:
     from .dbi3_config_options import Dbi3ConfigOptions
     from .audit_utils import init_logger, get_log
 
-__version__ = "0.1.alpah1"
+__version__ = "0.1.alpha1"
 
 
 class DBI3LogDownload:
@@ -64,7 +64,7 @@ class DBI3LogDownload:
         fs list - returns log list\n\r follow with fs stop or md mach to gen ok/nok to indicate end
 
     Some command returns include ok/nok as the last line, giving an explicit indication of the end
-    of output.  For those that dont ("fs list")" we add the "md mach" command as a no-op that DOES
+    of output.  For those that do not ("fs list")" we add the "md mach" command as a no-op that DOES
     generate ok/nok
     """
 
@@ -109,7 +109,8 @@ class DBI3LogDownload:
         if self.com_port is None:
             # try to find the appropriate DBI3 comm port by USB VID:PID for FTDI FT230X
             for c_p in comports():
-                if c_p.vid == 0x0403 and c_p.pid == 0x6015:
+                if ((c_p.vid == 0x0403 and c_p.pid == 0x6015) or
+                    (c_p.vid == 0x36AF and c_p.pid == 0x0101)):
                     if self.com_port is not None:
                         raise IOError(
                             "Can not select a DBI3 comm port (duplicate USB VID:PID 0403:6015)"
@@ -193,7 +194,8 @@ class DBI3LogDownload:
         self.serial_fd = serial.Serial(self.com_port, 115200, timeout=2, rtscts=True)
         self.serial_fd.dtr = True
 
-        # Ensure any pending data is flushed from the DBI3
+        # Get cli to a known state and read all old pending data
+        self.serial_fd.write(str.encode("\r" + self.MD_MACH + "\r"))
         while True:
             rd_cnt = (
                 self.serial_fd.in_waiting + 1
@@ -205,7 +207,7 @@ class DBI3LogDownload:
 
         # ensure the DBI3 is in a good state
         self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
-        self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
+#        self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
 
         # Get the actual device serial number from the DBI3
         self.serial_fd.write(str.encode("sn\r"))
@@ -214,12 +216,19 @@ class DBI3LogDownload:
             raise IOError("cmd sn: returned empty")
         self.dbi3_sn = res
 
+        # Get the firmware version
+        self.serial_fd.write(str.encode("vr\r"))
+        res = self.__readDbi3Line()
+        if res == "":
+            raise IOError("cmd vr: returned empty")
+        self.dbi3_ver = res
+
     def __get_latest_log_time(self):
         """Determine the latest log file that has been downloaded from the DBI3
 
         To determine "new" logs we need to know the currently latest log in log_path
 
-        Do descending sort of the log_path, skip wrong length file names and non-files,
+        Descending sort of the log_path, skip wrong length file names and non-files,
         first successful strptime should be the latest log file.
 
         :action:  updates self.new_limit
@@ -293,7 +302,7 @@ class DBI3LogDownload:
             new_logs_only = self.app_config.CLI_new_logs
 
         self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
-        self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
+#        self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
 
         p_path = os.path.join(self.log_path, self.dbi3_sn)
 
@@ -316,6 +325,8 @@ class DBI3LogDownload:
                 # List ended, we got the ok/nok from the md mach command.
                 break
             rs = res.split(" ")
+            if len(rs) != 2:
+                continue  # fwver 2.2 changed filename and implemented MTP access
             start_dt = self.__fat_to_datetime(rs[0])
             # To handle scaling of the list, at this level we can ignore logs that are older that age_limit
             if dt_limit is not None and start_dt < dt_limit:
@@ -374,7 +385,7 @@ class DBI3LogDownload:
         start_dt = datetime.now(utc)
         print("Deleting log {}".format(name))
         self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
-        self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
+#        self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
 
         self.serial_fd.write(str.encode("fs del {}\r".format(name)))
         orig_timeout = self.serial_fd.timeout
@@ -465,7 +476,7 @@ class DBI3LogDownload:
 
         # Ensure the cli is clear and initialized
         self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
-        self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
+#        self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
 
         for cfg in self.CFG_COMMANDS:
             cfg_report.append("\nCONFIG-{}".format(cfg[1]))
@@ -498,7 +509,7 @@ class DBI3LogDownload:
 
         for res in iter(self.__readDbi3Line, None):
             if self.verbose:
-                print("RDT multiline {}".format(res))
+                print("RDT multiline [{}] = {}".format(cmd, res))
             if res == "ok" or res == "nok":
                 # List ended, we got the ok/nok from the md mach command.
                 break
@@ -507,7 +518,7 @@ class DBI3LogDownload:
 
         if self.verbose:
             for rs in log_list:
-                print("multiline:{}".format(rs))
+                print("multiline [{}] data:{}".format(cmd, rs))
 
         # noinspection PyTypeChecker
         self.cfg_dict[cmd]["multivalue"] = log_list
@@ -605,7 +616,7 @@ class DBI3LogDownload:
         # return output[0:-len_eol].strip()  # trim eol and white space off the return
 
     def get_DBI3_log(self, name):
-        """Down load the specified log from the DBI3 serial connection.
+        """Download the specified log from the DBI3 serial connection.
 
         Read and write the log one line at a time to avoid massive buffers
         from a very long duration log.
@@ -614,7 +625,7 @@ class DBI3LogDownload:
         :return str:  Report of the download results
         """
         self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
-        self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
+#        self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
 
         p_path = os.path.join(self.log_path, self.dbi3_sn)
         if not os.path.isdir(p_path):
