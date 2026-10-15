@@ -525,7 +525,11 @@ class Dbi3KmlConversionCommands(cmd.Cmd):
             if app_config.CLI_skip_invalid:
                 if log_stats.status <= 0:
                     if app_config.verbose:
-                        print("Log {} dropped from list for status {} <= 0".format(le.log_name, log_stats.status))
+                        print(
+                            "Log {} dropped from list for status {} <= 0".format(
+                                le.log_name, log_stats.status
+                            )
+                        )
                     continue
             # create my_list from conversion_list.  automatically select "new_file" and add the
             # field for KML track statistics.

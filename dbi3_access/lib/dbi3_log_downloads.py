@@ -109,8 +109,9 @@ class DBI3LogDownload:
         if self.com_port is None:
             # try to find the appropriate DBI3 comm port by USB VID:PID for FTDI FT230X
             for c_p in comports():
-                if ((c_p.vid == 0x0403 and c_p.pid == 0x6015) or
-                    (c_p.vid == 0x36AF and c_p.pid == 0x0101)):
+                if (c_p.vid == 0x0403 and c_p.pid == 0x6015) or (
+                    c_p.vid == 0x36AF and c_p.pid == 0x0101
+                ):
                     if self.com_port is not None:
                         raise IOError(
                             "Can not select a DBI3 comm port (duplicate USB VID:PID 0403:6015)"
@@ -207,7 +208,7 @@ class DBI3LogDownload:
 
         # ensure the DBI3 is in a good state
         self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
-#        self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
+        # self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
 
         # Get the actual device serial number from the DBI3
         self.serial_fd.write(str.encode("sn\r"))
@@ -302,7 +303,7 @@ class DBI3LogDownload:
             new_logs_only = self.app_config.CLI_new_logs
 
         self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
-#        self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
+        # self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
 
         p_path = os.path.join(self.log_path, self.dbi3_sn)
 
@@ -385,7 +386,7 @@ class DBI3LogDownload:
         start_dt = datetime.now(utc)
         print("Deleting log {}".format(name))
         self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
-#        self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
+        # self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
 
         self.serial_fd.write(str.encode("fs del {}\r".format(name)))
         orig_timeout = self.serial_fd.timeout
@@ -476,7 +477,7 @@ class DBI3LogDownload:
 
         # Ensure the cli is clear and initialized
         self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
-#        self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
+        # self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
 
         for cfg in self.CFG_COMMANDS:
             cfg_report.append("\nCONFIG-{}".format(cfg[1]))
@@ -625,7 +626,7 @@ class DBI3LogDownload:
         :return str:  Report of the download results
         """
         self.__do_DBI3_cmd(self.MD_MACH, self.RESP_OK)
-#        self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
+        # self.__do_DBI3_cmd(self.FS_STOP, self.RESP_ANY)
 
         p_path = os.path.join(self.log_path, self.dbi3_sn)
         if not os.path.isdir(p_path):

@@ -70,7 +70,10 @@ class Dbi3Log:
         self.dbi3_sn = sn
         self.kml_cfg = kml_cfg
         self.dbi3_fwver = None
-        self.gpss_valid = "0"  # Thru fwver 1.8, gps valid was "0".  Then it was "1"
+        # Thru fwver 1.8, GPSS field "0"=GPS valid.  Then it was "1"=GPS valid.
+        # With fwver 2.6 it returned to "0"=GPS valid
+        # Set the expected valid indicator based on the log file version.
+        self.gpss_valid = "0"
 
         self.proc_log = ""  # Accumulate print output from the entire conversion
 
@@ -169,7 +172,11 @@ class Dbi3Log:
                         var, val = p.split("=")  # type: (str, str)
                         logvars[var] = val
                 except Exception as e:
-                    print("Exception parsing line {} is: {}".format(line, e))
+                    print(
+                        '\nException parsing {} line {}:"{}"\nException: {}\nRecord skipped.'.format(
+                            self.filename, self.total_log_recs, line, e
+                        )
+                    )
                     self.bad_recs += 1
                     continue
 
@@ -185,13 +192,24 @@ class Dbi3Log:
                     missing_key = self.__field_check(START_FIELDS, logvars)
                     if missing_key is not None:
                         print("Start record missing field " + missing_key)
-                        break
+                        break  # bad start line, abort file
                     start_datetime = log_datetime
                     # rec_time is incremented at the BEGINNING of each data loop, so initially decrement here.
                     rec_time = log_datetime - TWO_SECONDS
                     self.dbi3_fwver = logvars["FWVER"]
-                    if float(self.dbi3_fwver) > 1.8:
-                        self.gpss_valid = "1"  # fwver 2.2 reversed the gpss valid value
+                    # validate fwver character string, digits and period(s)
+                    if not re.fullmatch(r"^[0-9.]+$", self.dbi3_fwver):
+                        print(
+                            '\nException parsing {} "FWVER={}": invalid characters\nLog file skipped.'.format(
+                                self.filename, self.dbi3_fwver
+                            )
+                        )
+                        self.bad_recs += 1
+                        break  # bad start line, abort file
+                    fwver = self.__version_key(self.dbi3_fwver)
+                    # fwver 2.2 reversed the "gpss" is valid value, fwver 2.6 restored the value
+                    if fwver >= self.__version_key("2.2") and fwver < self.__version_key("2.6"):
+                        self.gpss_valid = "1"
                     # fw ver 1.2 had a dummy SN in the log header so we override by extracting from the
                     # DBI3 serial cli, but if that wasn't supplied then use the log field.
                     if self.dbi3_sn is None:
@@ -254,31 +272,40 @@ class Dbi3Log:
                                     + logvars["LONG"]
                                 )
 
-                            # TODO catch all parse errors as bad_recs
-                            # calculate and accumulate KML data
-                            latitude = self.__ddmm2d(logvars["LAT"])
-                            self.kml_lat.append(latitude)
-                            longitude = self.__ddmm2d(logvars["LONG"])
-                            self.kml_lon.append(longitude)
-                            # calculate min/max lat and lon so we can construct a display bounding box
-                            self.min_lat = min(self.min_lat, latitude)
-                            self.max_lat = max(self.max_lat, latitude)
-                            self.min_lon = min(self.min_lon, longitude)
-                            self.max_lon = max(self.max_lon, longitude)
-                            # Append the time and coordinate lists
-                            self.kml_when.append(rec_time.isoformat("T"))
+                            # catch all parse errors as bad_recs
+                            try:
+                                # calculate and accumulate KML data
+                                latitude = self.__ddmm2d(logvars["LAT"])
+                                self.kml_lat.append(latitude)
+                                longitude = self.__ddmm2d(logvars["LONG"])
+                                self.kml_lon.append(longitude)
+                                # calculate min/max lat and lon so we can construct a display bounding box
+                                self.min_lat = min(self.min_lat, latitude)
+                                self.max_lat = max(self.max_lat, latitude)
+                                self.min_lon = min(self.min_lon, longitude)
+                                self.max_lon = max(self.max_lon, longitude)
+                                # Append the time and coordinate lists
+                                self.kml_when.append(rec_time.isoformat("T"))
 
-                            altitude = float(logvars["ALT"])
-                            if self.kml_cfg.altitude_offset is not None:
-                                altitude += self.kml_cfg.altitude_offset
-                            self.kml_alt.append(
-                                round(
-                                    altitude
-                                    if self.kml_cfg.kml_use_metric
-                                    else conv_M_to_ft(altitude),
-                                    1,
+                                altitude = float(logvars["ALT"])
+                                if self.kml_cfg.altitude_offset is not None:
+                                    altitude += self.kml_cfg.altitude_offset
+                                self.kml_alt.append(
+                                    round(
+                                        altitude
+                                        if self.kml_cfg.kml_use_metric
+                                        else conv_M_to_ft(altitude),
+                                        1,
+                                    )
                                 )
-                            )
+                            except Exception as e:
+                                print(
+                                    '\nException parsing {} line {}:"{}"\nException: {}\nRecord skipped.'.format(
+                                        self.filename, self.total_log_recs, line, e
+                                    )
+                                )
+                                self.bad_recs += 1
+                                continue
 
                             # if we have GPS altitude available, determine which we use in the coordinates
                             if (
@@ -355,7 +382,8 @@ class Dbi3Log:
 
                             self.kml_bar.append(round(float(logvars["BAR"]), 2))
 
-                            if logvars["TOPTS"] == "1":  # Top temp value is valid
+                            # fw ver 2.2 changed the valid indicator, assume any non "0"
+                            if logvars["TOPTS"] != "0":  # Top temp value is valid
                                 top_temp = (
                                     conv_C_to_F(float(logvars["TOPT"]))
                                     if temp_is_f
@@ -397,6 +425,7 @@ class Dbi3Log:
             self.kml_end_lat = last_lat
             self.kml_end_lon = last_lon
 
+            # successful exit is from log_state 3 (END record processed), else parse error
             rtn_val = self.data_recs if log_state == 3 else -1
 
             if debug:
@@ -445,17 +474,29 @@ class Dbi3Log:
             dm - string of the [d[d]]dmm.mmmmi
 
         Return:
-            floating point degrees equivelent of dm
+            floating point degrees equivalent of dm string
+            Exception on error
         """
-        hemi = dm[-1:]
-        dm = dm[:-1]
-        min_dec = dm.find(".")
-        deg = dm[: min_dec - 2]
-        minutes = dm[min_dec - 2 :]
-        latlon = float(deg) + float(minutes) / 60.0
-        if hemi == "W" or hemi == "S":
-            latlon = 0.0 - latlon
-        return latlon
+        x = dm
+        try:
+            hemi = dm[-1:]
+            dm = dm[:-1]
+            min_dec = dm.find(".")
+            deg = dm[: min_dec - 2]
+            minutes = dm[min_dec - 2 :]
+            latlon = float(deg) + float(minutes) / 60.0
+            if hemi == "W" or hemi == "S":
+                latlon = 0.0 - latlon
+            return latlon
+        except Exception as e:
+            raise Exception('parsing latlon "{}" : {}'.format(x, e))
+
+    @staticmethod
+    def __version_key(version_str):
+        """
+        Convert "." seperated version string into tuple for value comparisons
+        """
+        return tuple(map(int, version_str.split(".")))
 
 
 class Dbi3LogConversion:
@@ -905,7 +946,9 @@ class Dbi3KmlList:
             age_limit_name = dt_limit.strftime("%Y_%m_%d_%H_%M_%S.log")
 
         # regex to extract timestamp fields from DBI3 log name format
-        prog = re.compile("^(\d{4})_(\d\d)_(\d\d)_(\d\d)_(\d\d)_(\d\d).log$")
+        # fwver 2.? DBI3 produced log files with "log_" prefix to the filename
+        # Accept either filename format.
+        prog = re.compile("^(?:log_)?(\d{4})_(\d\d)_(\d\d)_(\d\d)_(\d\d)_(\d\d).log$")
         for log_name in sorted(os.listdir(self.log_sn_path)):
             name_parts = prog.match(log_name)
             log_filename = os.path.join(self.log_sn_path, log_name)

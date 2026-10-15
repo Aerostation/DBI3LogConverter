@@ -1,6 +1,8 @@
 # DBI3cli - DBI3 track log handler
 This application reads Digitool DBI3 log files and converts them to common formats such as KML.
 
+Much of this README relates to my specific environment.
+
 The original **DBI3LogConverter** application that converted
 a single DBI3 log file into KML has been replaced (21Aug2018).
 The newer application **DBI3cli** includes code to download and/or delete
@@ -11,6 +13,12 @@ DBI3LogConverter.  CSV output support is a work in progress.
 LOG files on the DBI3 must first be downloaded to the PC before conversion.  The LOG files
 are never altered by this
 application but simply used as the source for conversion to KML or other formats.
+
+DBI3 v2.2 changed USB connection to show up as an MTP device with the log files showing up with
+the start date as the filename in the same format as my original serial downloads.
+
+DBI3 v2.2 also includes a kml conversion, but the extra data does not allow the
+the units (ft vs. km, etc.) to be defined.
 
 It is possible to create an optional metadata file for any LOG file that will contain
 overrides for the KML conversion.  Override elements like altitude offset (when the altimeter
@@ -67,12 +75,16 @@ I have started enforcing "The Black Code Style" by running the **black** applica
 (actually python module).  The only current override is to increase the maximum line length
 from the **black** default of 88 to 99.
 
+Black is currently installed in the Ubuntu VM only which has the Windows git repository mounted.
+
 With python env set to DBI3dev, in the top repository directory:
 ```commandline
 black --check .
+black --diff .
 black .
 ```
 The --check will report on the files that WOULD be changed.
+--diff will display style diffs without applying them.
 
 #### DEVELOPMENT ENV -
 Python 2.7 support may have broken due to limited datetime/timezone support.
