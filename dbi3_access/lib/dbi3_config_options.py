@@ -9,6 +9,7 @@ from __future__ import print_function
 
 import os
 import sys
+import re
 from datetime import datetime, time, timedelta
 import json
 import collections
@@ -278,8 +279,15 @@ class Dbi3ConfigOptions:
         print("\nAny changes to the config file will not take affect until the program restarts.")
 
     def edit_conversion_config(self, cfg_path):
+        """
+        Create/edit a "hidden" GPS log meta data file to edit the kml
+        conversion process.
+
+        With fwver 2.2, log files have a "log_" prefix we have to allow for.
+        """
+        # extract the start date from the filename
         self.meta_start_date = datetime.strptime(
-            os.path.basename(cfg_path), ".%Y_%m_%d_%H_%M_%S"
+            re.sub('\.log_', '.', os.path.basename(cfg_path)), ".%Y_%m_%d_%H_%M_%S"
         ).replace(tzinfo=utc)
         data = {}
         if os.path.isfile(cfg_path):
